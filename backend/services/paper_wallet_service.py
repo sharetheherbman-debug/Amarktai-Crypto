@@ -142,14 +142,12 @@ class PaperWalletService:
             "total": round(total, 2)
         }
 
-    async def reset(self, user_id: str) -> Dict:
-        """Reset paper wallet to ZERO balance (unfunded state).
-
-        Per hard requirement: after a reset the wallet must show balance=0 and
-        allocated=0.  The system remains UNFUNDED until the user explicitly
-        funds it via the /api/wallet/paper/fund endpoint.
-        """
+    async def reset(self, user_id: str, starting_balance: Optional[float] = None) -> Dict:
+        """Reset the paper wallet to the configured starting balance."""
         await self.init_db()
+        reset_balance = float(
+            PAPER_STARTING_CAPITAL_ZAR if starting_balance is None else starting_balance
+        )
         # Capture balance before reset
         existing = await self.collection.find_one(
             {"user_id": user_id, "type": "paper"},
@@ -161,7 +159,7 @@ class PaperWalletService:
             {"user_id": user_id, "type": "paper"},
             {
                 "$set": {
-                    "balances": {"ZAR": 0.0},
+                    "balances": {"ZAR": reset_balance},
                     "updated_at": datetime.now(timezone.utc).isoformat()
                 },
                 "$setOnInsert": {
@@ -173,7 +171,7 @@ class PaperWalletService:
             upsert=True,
             return_document=ReturnDocument.AFTER
         )
-        wallet_after = result.get("balances") or {"ZAR": 0.0}
+        wallet_after = result.get("balances") or {"ZAR": reset_balance}
         return {
             "balances": wallet_after,
             "total": round(sum(float(v or 0) for v in wallet_after.values()), 2),

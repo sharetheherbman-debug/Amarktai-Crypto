@@ -18,11 +18,16 @@ async def test_paper_reset_validate_accepts_password_aliases(monkeypatch):
         {"user_id": user_id, "paperTrading": True, "liveTrading": False}
     )
 
-    result = await validate_paper_reset(
-        request=PaperResetRequest(resetPassword="unit-test-reset"),
-        user_id=user_id,
-    )
-    assert result["valid"] is True
+    for payload in (
+        PaperResetRequest(password="unit-test-reset"),
+        PaperResetRequest(resetPassword="unit-test-reset"),
+        PaperResetRequest(reset_password="unit-test-reset"),
+        PaperResetRequest(confirmation="unit-test-reset"),
+        PaperResetRequest(confirmation_phrase="unit-test-reset"),
+        PaperResetRequest(confirm="unit-test-reset"),
+    ):
+        result = await validate_paper_reset(request=payload, user_id=user_id)
+        assert result["valid"] is True
 
 
 @pytest.mark.asyncio
@@ -43,3 +48,4 @@ async def test_paper_reset_wrong_password_returns_403(monkeypatch):
         )
 
     assert exc.value.status_code == 403
+    assert exc.value.detail["reason"] == "wrong_password"

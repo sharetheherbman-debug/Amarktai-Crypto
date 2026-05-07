@@ -30,3 +30,6 @@ async def test_learning_last_run_diagnostics_reports_last_run():
     payload = await server.diagnostics_learning_last_run(user_id=user_id)
     assert payload["last_run_ts"] == "2026-05-01T01:30:00+00:00"
     assert payload["bots_updated_count"] == 3
+    assert payload["last_run_at"] == "2026-05-01T01:30:00+00:00"
+    assert payload["parameters_updated"] == 3
+    assert payload["audit_id"] == "run_1"

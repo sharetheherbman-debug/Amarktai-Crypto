@@ -375,7 +375,8 @@ class TradingScheduler:
                                 {"$set": {
                                     "last_tick_at": datetime.now(timezone.utc).isoformat(),
                                     "last_trade_simulated_at": datetime.now(timezone.utc).isoformat(),
-                                    "last_order_error": None
+                                    "last_order_error": None,
+                                    "last_order_diagnostics": None,
                                 }}
                             )
                         elif result is None or (isinstance(result, dict) and not result.get('success', True)):
@@ -400,7 +401,8 @@ class TradingScheduler:
                                 {"$set": {
                                     "last_tick_at": datetime.now(timezone.utc).isoformat(),
                                     "last_order_attempt_at": datetime.now(timezone.utc).isoformat(),
-                                    "last_order_error": reason_msg
+                                    "last_order_error": reason_msg,
+                                    "last_order_diagnostics": result.get("details") if isinstance(result, dict) else None,
                                 }}
                             )
                         else:
@@ -454,14 +456,15 @@ class TradingScheduler:
                     await trade_staggerer.register_trade_complete(bot_id, bot.get('exchange'))
                     # Surface the error into bot document for diagnostics
                     try:
-                        await db.bots_collection.update_one(
-                            {"id": bot_id},
-                            {"$set": {
-                                "last_tick_at": datetime.now(timezone.utc).isoformat(),
-                                "last_order_attempt_at": datetime.now(timezone.utc).isoformat(),
-                                "last_order_error": str(e)
-                            }}
-                        )
+                            await db.bots_collection.update_one(
+                                {"id": bot_id},
+                                {"$set": {
+                                    "last_tick_at": datetime.now(timezone.utc).isoformat(),
+                                    "last_order_attempt_at": datetime.now(timezone.utc).isoformat(),
+                                    "last_order_error": str(e),
+                                    "last_order_diagnostics": {"error": str(e)},
+                                }}
+                            )
                     except Exception:
                         pass
             

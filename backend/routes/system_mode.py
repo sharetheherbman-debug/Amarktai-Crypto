@@ -5,7 +5,7 @@ Enforces exclusivity and provides single source of truth
 
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
-from typing import Optional
+from typing import Any, Optional
 import logging
 from datetime import datetime, timezone, timedelta
 from collections import defaultdict
@@ -23,9 +23,17 @@ router = APIRouter(prefix="/api/system", tags=["System Mode"])
 PAPER_RESET_MAX_ATTEMPTS = 5
 PAPER_RESET_WINDOW = timedelta(minutes=1)
 paper_reset_attempts = defaultdict(lambda: {"count": 0, "reset_at": datetime.now(timezone.utc)})
+PAPER_RESET_ACCEPTED_FIELDS = (
+    "password",
+    "resetPassword",
+    "reset_password",
+    "confirmation",
+    "confirmation_phrase",
+    "confirm",
+)
 
 
-def get_paper_reset_password() -> str:
+def _load_paper_reset_password() -> str:
     reset_password = os.getenv("PAPER_RESET_PASSWORD")
     if not reset_password:
         env_path = "/etc/amarktai/amarktai.env"
@@ -42,17 +50,25 @@ def get_paper_reset_password() -> str:
                             break
         except Exception as e:
             logger.warning("Failed reading PAPER_RESET_PASSWORD from %s: %s", env_path, e)
+    return str(reset_password or "").strip()
+
+
+def get_paper_reset_password() -> str:
+    reset_password = _load_paper_reset_password()
     if not reset_password:
         raise HTTPException(
-            status_code=500, 
+            status_code=500,
             detail="Paper reset password not configured. Set PAPER_RESET_PASSWORD environment variable to enable runtime reset functionality."
         )
     return reset_password
 
 
-def is_paper_reset_password_valid(candidate: str) -> bool:
-    reset_password = get_paper_reset_password()
-    return hmac.compare_digest(str(candidate or ""), reset_password)
+def is_paper_reset_password_valid(candidate: str) -> tuple[bool, bool]:
+    reset_password = _load_paper_reset_password()
+    normalized_candidate = str(candidate or "").strip()
+    if not reset_password:
+        return False, False
+    return hmac.compare_digest(normalized_candidate, reset_password), True
 
 
 def check_paper_reset_attempts(user_id: str) -> tuple[bool, int]:
@@ -398,170 +414,64 @@ class PaperResetRequest(BaseModel):
     reset_password: Optional[str] = None
     confirmation: Optional[str] = None
     confirmation_phrase: Optional[str] = None
+    confirm: Optional[str] = None
 
 
-def _extract_reset_password(request: "PaperResetRequest") -> str:
-    return str(
-        request.password
-        or request.resetPassword
-        or request.reset_password
-        or request.confirmation
-        or request.confirmation_phrase
-        or ""
-    )
+def _extract_reset_password(request: "PaperResetRequest") -> tuple[str, list[str]]:
+    accepted_fields: list[str] = []
+    for field in PAPER_RESET_ACCEPTED_FIELDS:
+        value = getattr(request, field, None)
+        if value:
+            accepted_fields.append(field)
+        if value is not None and str(value).strip():
+            return str(value).strip(), accepted_fields
+    return "", accepted_fields
+
+
+async def _paper_reset_debug_enabled(user_id: str) -> bool:
+    env_name = (
+        os.getenv("APP_ENV")
+        or os.getenv("ENVIRONMENT")
+        or os.getenv("NODE_ENV")
+        or "development"
+    ).strip().lower()
+    if env_name != "production":
+        return True
+    try:
+        return bool(await is_admin(user_id))
+    except Exception:
+        return False
+
+
+async def _build_paper_reset_debug_payload(
+    user_id: str,
+    *,
+    accepted_fields: list[str],
+    password_configured: bool,
+    reason: Optional[str] = None,
+) -> dict[str, Any]:
+    if not await _paper_reset_debug_enabled(user_id):
+        return {}
+    payload: dict[str, Any] = {
+        "password_configured": password_configured,
+        "accepted_fields": accepted_fields,
+    }
+    if reason:
+        payload["reason"] = reason
+    return payload
 
 
 async def perform_paper_reset(user_id: str) -> dict:
-    """Clear paper trading data for a user and return deletion summaries."""
-    summary = {
-        "bots_deleted": 0,
-        "trades_deleted": 0,
-        "orders_deleted": 0,
-        "positions_deleted": 0,
-        "metrics_deleted": 0,
-        "learning_deleted": 0,
-        "decisions_deleted": 0,
-        "wallet_reset": False,
-        "chat_cleared": 0
-    }
-    collection_counts = {"bots": 0, "paper_wallet": 0}
-
-    bots = await db.bots_collection.find(
-        {"user_id": user_id, "deleted_at": {"$exists": False}},
-        {"_id": 0, "id": 1}
-    ).to_list(1000)
-    bot_ids = [bot.get("id") for bot in bots if bot.get("id")]
+    """Clear paper trading data for a user via the canonical orchestrator."""
+    from services.paper_reset_orchestrator import run as run_paper_reset
 
     delete_timestamp = datetime.now(timezone.utc).isoformat()
-    if bot_ids:
-        bot_result = await db.bots_collection.update_many(
-            {"id": {"$in": bot_ids}, "user_id": user_id},
-            {
-                "$set": {
-                    "status": "deleted",
-                    "deleted_at": delete_timestamp,
-                    "deleted_by": user_id,
-                    "deletion_reason": "paper_reset"
-                }
-            }
-        )
-        summary["bots_deleted"] = bot_result.modified_count
-        collection_counts["bots"] = bot_result.modified_count
-
-    bot_linked = [
-        ("trades", "trades_deleted", db.trades_collection),
-        ("orders", "orders_deleted", db.orders_collection),
-        ("positions", "positions_deleted", db.positions_collection),
-    ]
-    for name, summary_key, collection in bot_linked:
-        collection_counts[name] = 0
-        if collection is None or not bot_ids:
-            continue
-        result = await collection.delete_many({"bot_id": {"$in": bot_ids}})
-        summary[summary_key] = result.deleted_count
-        collection_counts[name] = result.deleted_count
-
-    user_collections = [
-        ("performance_metrics", "metrics_deleted", db.performance_metrics_collection),
-        ("balance_snapshots", "metrics_deleted", db.balance_snapshots_collection),
-        ("bot_metrics", "metrics_deleted", db.bot_metrics_collection),
-        ("bot_runtime_state", "metrics_deleted", db.bot_runtime_state_collection),
-        ("bot_lifecycle", "metrics_deleted", db.bot_lifecycle_collection),
-        ("wallet_balances", "metrics_deleted", db.wallet_balances_collection),
-        ("wallets", "metrics_deleted", db.wallets_collection),
-        ("ledger", "metrics_deleted", db.ledger_collection),
-        ("capital_injections", "metrics_deleted", db.capital_injections_collection),
-        ("funding_plans", "metrics_deleted", db.funding_plans_collection),
-        ("wallet_transfers", "metrics_deleted", db.wallet_transfers_collection),
-        ("transfer_jobs", "metrics_deleted", db.transfer_jobs_collection),
-        ("transfers_ledger", "metrics_deleted", db.transfers_ledger_collection),
-        ("training_jobs", "learning_deleted", db.training_jobs_collection),
-        ("learning_data", "learning_deleted", db.learning_data_collection),
-        ("learning_logs", "learning_deleted", db.learning_logs_collection),
-        ("learning_runs", "learning_deleted", db.learning_runs_collection),
-        ("learning_changes", "learning_deleted", db.learning_changes_collection),
-        ("learning_metrics", "learning_deleted", db.learning_metrics_collection),
-        ("strategy_versions", "learning_deleted", db.strategy_versions_collection),
-        ("bot_strategy_assignments", "learning_deleted", db.bot_strategy_assignments_collection),
-        ("decisions", "decisions_deleted", db.decisions_collection),
-        ("autopilot_actions", "decisions_deleted", db.autopilot_actions_collection),
-        ("autopilot_milestones", "decisions_deleted", db.autopilot_milestones_collection),
-        ("autopilot_reinvest_events", "decisions_deleted", db.autopilot_reinvest_events_collection),
-        ("action_audit_log", "decisions_deleted", db.action_audit_log_collection),
-        ("profits", "metrics_deleted", db.profits_collection),
-        ("profit_ledger", "metrics_deleted", db.profit_ledger_collection),
-        ("reinvest_requests", "metrics_deleted", db.reinvest_requests_collection),
-        ("user_countdowns", "metrics_deleted", db.user_countdowns_collection),
-        ("user_memory", "metrics_deleted", db.user_memory_collection),
-        ("reports", "metrics_deleted", db.reports_collection),
-        ("notifications", "metrics_deleted", db.notifications_collection),
-        ("paper_ledger", "metrics_deleted", db.paper_ledger_collection),
-        ("chat_messages", "chat_cleared", db.chat_messages_collection),
-        ("chatops_actions", "chat_cleared", db.chatops_actions_collection),
-        ("chatops_confirmations", "chat_cleared", db.chatops_confirmations_collection),
-    ]
-    for name, summary_key, collection in user_collections:
-        collection_counts[name] = 0
-        if collection is None:
-            continue
-        result = await collection.delete_many({"user_id": user_id})
-        summary[summary_key] += result.deleted_count
-        collection_counts[name] = result.deleted_count
-
-    # ── Ledger collections (fills_ledger + ledger_events drive compute_equity) ──
-    # These are NOT module-level db vars — accessed via db.db["<name>"] directly.
-    _raw_db_collections = [
-        "fills_ledger",
-        "ledger_events",
-        "equity_series",
-        "drawdown_series",
-        "growth_engine_decisions",
-        "growth_engine_state",
-        "circuit_breaker_state",
-        "scheduler_state",
-        "ai_memory",
-        "countdown_state",
-    ]
-    for cname in _raw_db_collections:
-        try:
-            if db.db is not None:
-                result = await db.db[cname].delete_many({"user_id": user_id})
-                collection_counts[cname] = result.deleted_count
-                summary["metrics_deleted"] += result.deleted_count
-        except Exception as e:
-            logger.warning(f"perform_paper_reset: could not clear {cname}: {e}")
-
-    try:
-        from services.paper_wallet_service import paper_wallet_service
-        await paper_wallet_service.reset(user_id)
-        summary["wallet_reset"] = True
-        collection_counts["paper_wallet"] = 1
-    except Exception as e:
-        logger.warning(f"Paper wallet reset failed: {e}")
-        collection_counts["paper_wallet"] = 0
-
-    await db.users_collection.update_one(
-        {"id": user_id},
-        {
-            "$set": {
-                "daily_loss_lock_active": False,
-                "daily_loss_lock_reset_at": delete_timestamp,
-                "daily_loss_lock_reset_by": user_id,
-                "emergency_stop": False
-            },
-            "$unset": {
-                "daily_loss_locked_at": "",
-                "daily_loss_locked_reason": "",
-                "daily_loss_pct": "",
-                "daily_loss_day_key": ""
-            }
-        }
-    )
+    result = await run_paper_reset(user_id=user_id, scope="paper_only", also_reset_risk_locks=True)
 
     await db.system_modes_collection.update_one(
         {"user_id": user_id},
         {"$set": {"paperTrading": True, "liveTrading": False, "autopilot": False}},
-        upsert=True
+        upsert=True,
     )
 
     try:
@@ -569,7 +479,7 @@ async def perform_paper_reset(user_id: str) -> dict:
             "user_id": user_id,
             "action": "paper_reset",
             "timestamp": delete_timestamp,
-            "details": summary
+            "details": result,
         })
     except Exception as e:
         logger.warning(f"Paper reset audit log failed: {e}")
@@ -580,51 +490,35 @@ async def perform_paper_reset(user_id: str) -> dict:
     })
     await rt_events.force_refresh(user_id, reason="Paper trading reset completed.")
 
-    # ── Post-reset invariant verification ────────────────────────────────────
-    # Ledger equity and trade count MUST be zero after a successful reset.
-    post_reset = {}
-    invariant_warnings = []
-    try:
-        from services.ledger_service import get_ledger_service
-        _lsvc = get_ledger_service(db.db)
-        post_reset["ledger_equity"] = round(await _lsvc.compute_equity(user_id, currency="ZAR"), 4)
-        post_reset["fills_count"] = await db.db["fills_ledger"].count_documents({"user_id": user_id})
-        post_reset["ledger_events_count"] = await db.db["ledger_events"].count_documents({"user_id": user_id})
-        if db.trades_collection is not None:
-            post_reset["trades_count"] = await db.trades_collection.count_documents({"user_id": user_id})
-        else:
-            post_reset["trades_count"] = 0
-        if db.bots_collection is not None:
-            post_reset["active_bots"] = await db.bots_collection.count_documents(
-                {"user_id": user_id, "status": {"$in": ["active", "running"]}}
-            )
-        else:
-            post_reset["active_bots"] = 0
-
-        if post_reset["ledger_equity"] != 0:
-            msg = f"ledger_equity={post_reset['ledger_equity']} non-zero after reset"
-            invariant_warnings.append(msg)
-            logger.error("perform_paper_reset invariant FAIL: %s (user=%s)", msg, user_id[:8])
-        if post_reset["fills_count"] > 0:
-            msg = f"fills_ledger has {post_reset['fills_count']} rows after reset"
-            invariant_warnings.append(msg)
-            logger.error("perform_paper_reset invariant FAIL: %s (user=%s)", msg, user_id[:8])
-        if post_reset["trades_count"] > 0:
-            msg = f"trades has {post_reset['trades_count']} rows after reset"
-            invariant_warnings.append(msg)
-            logger.error("perform_paper_reset invariant FAIL: %s (user=%s)", msg, user_id[:8])
-        if not invariant_warnings:
-            logger.info("perform_paper_reset invariants OK for user=%s", user_id[:8])
-    except Exception as ve:
-        logger.warning("perform_paper_reset: post-reset verification error: %s", ve)
-        invariant_warnings.append(f"Verification error: {ve}")
-
     return {
-        "summary": summary,
-        "collection_counts": collection_counts,
-        "post_reset": post_reset,
-        "invariant_warnings": invariant_warnings,
-        "timestamp": delete_timestamp
+        "summary": {
+            "bots_deleted": result.get("bots_soft_deleted", 0),
+            "open_trades_deleted": result.get("open_trades_deleted", 0),
+            "fills_deleted": result.get("fills_deleted", 0),
+            "trades_deleted": result.get("trades_deleted", 0),
+            "runtime_deleted": result.get("runtime_deleted", 0),
+            "risk_locks_cleared": result.get("risk_locks_reset", 0),
+            "wallet_reset": result.get("wallet_reset", False),
+        },
+        "collection_counts": {
+            "bots": result.get("bots_soft_deleted", 0),
+            "paper_wallet": result.get("paper_balance", 0),
+        },
+        "post_reset": result.get("post_reset", {}),
+        "invariant_warnings": result.get("warnings", []),
+        "timestamp": delete_timestamp,
+        "bots_deleted": result.get("bots_soft_deleted", 0),
+        "open_trades_deleted": result.get("open_trades_deleted", 0),
+        "fills_deleted": result.get("fills_deleted", 0),
+        "trades_deleted": result.get("trades_deleted", 0),
+        "runtime_deleted": result.get("runtime_deleted", 0),
+        "risk_locks_cleared": result.get("risk_locks_reset", 0),
+        "wallet_reset": result.get("wallet_reset", False),
+        "wallet_available": result.get("wallet_available", 0),
+        "paper_balance": result.get("paper_balance", 0),
+        "remaining_paper_bots": result.get("remaining_paper_bots", 0),
+        "remaining_open_paper_trades": result.get("remaining_open_paper_trades", 0),
+        "remaining_paper_fills": result.get("remaining_paper_fills", 0),
     }
 
 
@@ -639,11 +533,24 @@ async def validate_paper_reset(
     allowed, retry_after = check_paper_reset_attempts(user_id)
     if not allowed:
         return {"valid": False, "reason": f"Too many attempts. Try again in {retry_after}s."}
-    candidate = _extract_reset_password(request)
-    is_valid = is_paper_reset_password_valid(candidate)
+    candidate, accepted_fields = _extract_reset_password(request)
+    is_valid, password_configured = is_paper_reset_password_valid(candidate)
+    reason = None
+    if not password_configured:
+        reason = "missing_password"
+    elif not is_valid:
+        reason = "wrong_password"
     if is_valid:
         reset_paper_reset_attempts(user_id)
-    return {"valid": is_valid}
+    return {
+        "valid": is_valid,
+        **await _build_paper_reset_debug_payload(
+            user_id,
+            accepted_fields=accepted_fields,
+            password_configured=password_configured,
+            reason=reason,
+        ),
+    }
 
 
 @router.post("/mode")
@@ -852,10 +759,35 @@ async def paper_reset(
         allowed, retry_after = check_paper_reset_attempts(user_id)
         if not allowed:
             raise HTTPException(status_code=429, detail=f"Too many attempts. Try again in {retry_after}s.")
-        candidate = _extract_reset_password(request)
-        if not is_paper_reset_password_valid(candidate):
+        candidate, accepted_fields = _extract_reset_password(request)
+        password_valid, password_configured = is_paper_reset_password_valid(candidate)
+        if not password_configured:
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "message": "Paper reset password not configured.",
+                    **await _build_paper_reset_debug_payload(
+                        user_id,
+                        accepted_fields=accepted_fields,
+                        password_configured=False,
+                        reason="missing_password",
+                    ),
+                },
+            )
+        if not password_valid:
             logger.warning("Paper reset denied for user=%s: invalid password/confirmation", user_id[:8])
-            raise HTTPException(status_code=403, detail="Invalid reset password or confirmation phrase")
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "message": "Invalid reset password or confirmation phrase",
+                    **await _build_paper_reset_debug_payload(
+                        user_id,
+                        accepted_fields=accepted_fields,
+                        password_configured=True,
+                        reason="wrong_password",
+                    ),
+                },
+            )
         reset_paper_reset_attempts(user_id)
 
         current_mode = await get_system_mode(user_id)
@@ -869,13 +801,29 @@ async def paper_reset(
         return {
             "success": True,
             "message": "Paper trading reset completed.",
+            **await _build_paper_reset_debug_payload(
+                user_id,
+                accepted_fields=accepted_fields,
+                password_configured=True,
+            ),
             **result
         }
     except HTTPException:
         raise
     except Exception as e:
         logger.error("Paper reset server error for user=%s: %s", user_id[:8], e)
-        raise HTTPException(status_code=500, detail="Paper reset failed due to server error")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "Paper reset failed due to server error",
+                **await _build_paper_reset_debug_payload(
+                    user_id,
+                    accepted_fields=[],
+                    password_configured=bool(_load_paper_reset_password()),
+                    reason="reset_failed",
+                ),
+            },
+        )
 
 
 @router.post("/reset-paper")
@@ -884,34 +832,7 @@ async def reset_paper_trading(
     user_id: str = Depends(get_current_user)
 ):
     """Legacy paper reset endpoint (password via PAPER_RESET_PASSWORD env)."""
-    try:
-        allowed, retry_after = check_paper_reset_attempts(user_id)
-        if not allowed:
-            raise HTTPException(status_code=429, detail=f"Too many attempts. Try again in {retry_after}s.")
-        candidate = _extract_reset_password(request)
-        if not is_paper_reset_password_valid(candidate):
-            logger.warning("Legacy paper reset denied for user=%s: invalid password/confirmation", user_id[:8])
-            raise HTTPException(status_code=403, detail="Invalid reset password or confirmation phrase")
-        reset_paper_reset_attempts(user_id)
-
-        current_mode = await get_system_mode(user_id)
-        if not current_mode.get("paperTrading") or current_mode.get("liveTrading"):
-            raise HTTPException(
-                status_code=400,
-                detail="Paper reset is only available in paper mode with live trading disabled."
-            )
-
-        result = await perform_paper_reset(user_id)
-        return {
-            "success": True,
-            "message": "Paper trading reset completed.",
-            **result
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Legacy paper reset server error for user=%s: %s", user_id[:8], e)
-        raise HTTPException(status_code=500, detail="Paper reset failed due to server error")
+    return await paper_reset(request=request, user_id=user_id)
 
 
 @router.post("/mode/switch")

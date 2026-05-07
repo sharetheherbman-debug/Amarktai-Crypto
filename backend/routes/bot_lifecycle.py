@@ -1846,9 +1846,7 @@ _GBOT_DEFINITIONS = [
     {"name": "Gbot5", "risk_mode": "aggressive"},
 ]
 
-
-@router.post("/seed-luno-paper")
-async def seed_luno_paper_bots(user_id: str = Depends(get_current_user)):
+async def _seed_standard_paper_bots(user_id: str):
     """
     Seed 5 standard Luno paper-trading bots (Gbot1..Gbot5).
 
@@ -1861,7 +1859,7 @@ async def seed_luno_paper_bots(user_id: str = Depends(get_current_user)):
     from uuid import uuid4
     from services.paper_wallet_service import paper_wallet_service
     from services.paper_wallet_ledger import paper_wallet_ledger
-    from config import PAPER_STARTING_CAPITAL_ZAR
+    from config import PAPER_PAIR_WHITELIST, PAPER_STARTING_CAPITAL_ZAR
 
     try:
         # Guard: paper mode only
@@ -1918,13 +1916,15 @@ async def seed_luno_paper_bots(user_id: str = Depends(get_current_user)):
 
         # Each bot gets 1/5 of available funds (min 500 ZAR, max starting/5)
         per_bot_capital = max(500.0, min(available_zar / 5.0, starting / 5.0))
+        allowed_pairs = list(PAPER_PAIR_WHITELIST.get("luno") or ["BTC/ZAR"])
 
         results = []
         now_iso = datetime.now(timezone.utc).isoformat()
 
-        for bot_def in _GBOT_DEFINITIONS:
+        for index, bot_def in enumerate(_GBOT_DEFINITIONS):
             name = bot_def["name"]
             risk_mode = bot_def["risk_mode"]
+            selected_pair = allowed_pairs[index % len(allowed_pairs)]
 
             # Check if already exists (non-deleted)
             existing_doc = await db.bots_collection.find_one(
@@ -1960,8 +1960,11 @@ async def seed_luno_paper_bots(user_id: str = Depends(get_current_user)):
                 "user_id": user_id,
                 "name": name,
                 "status": "active",
+                "active": True,
+                "paused": False,
                 "exchange": "luno",
-                "pair": "BTC/ZAR",
+                "pair": selected_pair,
+                "symbol": selected_pair,
                 "risk_mode": risk_mode,
                 "initial_capital": per_bot_capital,
                 "starting_capital": per_bot_capital,
@@ -1970,9 +1973,11 @@ async def seed_luno_paper_bots(user_id: str = Depends(get_current_user)):
                 "allocated_capital": per_bot_capital,
                 "mode": "paper",
                 "trading_mode": "paper",
+                "lifecycle_state": "active",
                 "trades_count": 0,
                 "daily_trade_count": 0,
                 "last_trade_time": None,
+                "last_order_error": None,
                 "win_count": 0,
                 "loss_count": 0,
                 "total_profit": 0,
@@ -1985,6 +1990,7 @@ async def seed_luno_paper_bots(user_id: str = Depends(get_current_user)):
                 # Paper bots are never gated by training — they trade freely immediately.
                 "training_complete": True,
                 "training_in_progress": False,
+                "paper_test_ready": True,
                 "seeded": True,
                 "deleted_at": None,  # Explicit null so partial index uidx_bot_identity covers this bot
             }
@@ -1992,10 +1998,17 @@ async def seed_luno_paper_bots(user_id: str = Depends(get_current_user)):
             await db.bots_collection.insert_one(bot_doc)
             logger.info(
                 f"Seeded Luno paper bot: {name} id={bot_id} capital={per_bot_capital} "
-                f"risk={risk_mode} user={user_id[:8]}"
+                f"risk={risk_mode} pair={selected_pair} user={user_id[:8]}"
             )
             results.append(
-                {"name": name, "bot_id": bot_id, "status": "created", "capital": per_bot_capital}
+                {
+                    "name": name,
+                    "bot_id": bot_id,
+                    "status": "created",
+                    "capital": per_bot_capital,
+                    "pair": selected_pair,
+                    "allowed_pairs": allowed_pairs,
+                }
             )
 
         created = [r for r in results if r["status"] == "created"]
@@ -2008,6 +2021,8 @@ async def seed_luno_paper_bots(user_id: str = Depends(get_current_user)):
             "existing": len(existing),
             "skipped": len(skipped),
             "bots": results,
+            "allowed_pairs": allowed_pairs,
+            "selected_pairs": [bot.get("pair") for bot in results if bot.get("pair")],
             "timestamp": now_iso,
         }
 
@@ -2017,3 +2032,12 @@ async def seed_luno_paper_bots(user_id: str = Depends(get_current_user)):
         logger.exception("Seed Luno paper bots error")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@router.post("/seed-luno-paper")
+async def seed_luno_paper_bots(user_id: str = Depends(get_current_user)):
+    return await _seed_standard_paper_bots(user_id)
+
+
+@router.post("/seed-paper")
+async def seed_paper_bots(user_id: str = Depends(get_current_user)):
+    return await _seed_standard_paper_bots(user_id)

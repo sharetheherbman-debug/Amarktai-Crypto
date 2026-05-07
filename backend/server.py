@@ -3061,14 +3061,59 @@ async def diagnostics_sentiment_news(user_id: str = Depends(get_current_user)):
 async def diagnostics_learning_last_run(user_id: str = Depends(get_current_user)):
     """Learning loop last run diagnostics"""
     try:
+        from datetime import timedelta
+        from services.learning_loop import LEARNING_LOOP_TARGET_TIME, learning_loop
+
+        safety_parameter_prefixes = (
+            "stop_loss",
+            "cooldown",
+            "max_hold",
+            "safety_exit",
+            "position_size",
+            "trade_size",
+        )
+        enabled = os.getenv("ENABLE_LEARNING_LOOP", "false").lower() == "true"
         last_run = await db.learning_runs_collection.find_one(
             {"user_id": user_id},
             {"_id": 0},
             sort=[("completed_at", -1)],
         )
+        next_run_at = None
+        now = datetime.now(timezone.utc)
+        target_datetime = datetime.combine(now.date(), LEARNING_LOOP_TARGET_TIME).replace(tzinfo=timezone.utc)
+        if now.time() >= LEARNING_LOOP_TARGET_TIME:
+            target_datetime = target_datetime + timedelta(days=1)
+        next_run_at = target_datetime.isoformat()
+
         if not last_run:
-            return {"last_run_ts": None, "bots_updated_count": 0, "errors_count": 0, "status": "never_run"}
+            return {
+                "enabled": enabled,
+                "last_run_at": None,
+                "next_run_at": next_run_at if enabled else None,
+                "last_result": "never_run",
+                "trades_analyzed": 0,
+                "parameters_updated": 0,
+                "safety_changes": 0,
+                "audit_id": None,
+                "last_run_ts": None,
+                "bots_updated_count": 0,
+                "errors_count": 0,
+                "status": "never_run",
+            }
+        changes = ((last_run.get("report") or {}).get("changes") or [])
+        safety_changes = [
+            change for change in changes
+            if str(change.get("parameter", "")).startswith(safety_parameter_prefixes)
+        ]
         return {
+            "enabled": enabled,
+            "last_run_at": last_run.get("completed_at") or (learning_loop.last_run.isoformat() if learning_loop.last_run else None),
+            "next_run_at": next_run_at if enabled else None,
+            "last_result": last_run.get("status"),
+            "trades_analyzed": last_run.get("trades_analyzed", 0),
+            "parameters_updated": last_run.get("changes_applied", 0),
+            "safety_changes": len(safety_changes),
+            "audit_id": last_run.get("run_id"),
             "last_run_ts": last_run.get("completed_at"),
             "bots_updated_count": last_run.get("changes_applied", 0),
             "errors_count": 1 if last_run.get("status") == "error" else 0,
