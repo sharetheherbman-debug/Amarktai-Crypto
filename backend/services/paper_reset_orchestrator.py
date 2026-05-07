@@ -505,7 +505,7 @@ async def run(
             )
             post_reset["remaining_paper_fills"] = post_reset["ledger_fills"]
             expected_equity = round(float(PAPER_STARTING_CAPITAL_ZAR), 4)
-            if post_reset["ledger_equity"] not in (0, expected_equity):
+            if abs(post_reset["ledger_equity"] - expected_equity) > 0.0001 and abs(post_reset["ledger_equity"]) > 0.0001:
                 msg = (
                     f"ledger_equity={post_reset['ledger_equity']} non-zero after reset"
                     f" for user {user_id[:8]}"

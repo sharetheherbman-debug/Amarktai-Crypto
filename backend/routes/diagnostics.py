@@ -682,13 +682,20 @@ async def paper_trading_readiness(user_id: str = Depends(get_current_user)):
     net_pnl = sum(float(trade.get("net_pnl", trade.get("profit_loss", 0)) or 0) for trade in recent_closed)
     gross_wins = sum(float(trade.get("net_pnl", trade.get("profit_loss", 0)) or 0) for trade in recent_closed if float(trade.get("net_pnl", trade.get("profit_loss", 0)) or 0) > 0)
     gross_losses = abs(sum(float(trade.get("net_pnl", trade.get("profit_loss", 0)) or 0) for trade in recent_closed if float(trade.get("net_pnl", trade.get("profit_loss", 0)) or 0) < 0))
+    if gross_losses:
+        profit_factor = round((gross_wins / gross_losses), 4)
+    elif gross_wins:
+        profit_factor = round(gross_wins, 4)
+    else:
+        profit_factor = 0.0
+
     paper_performance = {
         "trades": total_closed,
         "closed_trades": total_closed,
         "wins": wins,
         "losses": losses,
         "win_rate": round((wins / total_closed) * 100, 2) if total_closed else 0.0,
-        "profit_factor": round((gross_wins / gross_losses), 4) if gross_losses else (round(gross_wins, 4) if gross_wins else 0.0),
+        "profit_factor": profit_factor,
         "expectancy": round((net_pnl / total_closed), 6) if total_closed else 0.0,
     }
 

@@ -418,9 +418,11 @@ class PaperResetRequest(BaseModel):
 
 
 def _extract_reset_password(request: "PaperResetRequest") -> tuple[str, list[str]]:
-    accepted_fields = [field for field in PAPER_RESET_ACCEPTED_FIELDS if getattr(request, field, None)]
+    accepted_fields: list[str] = []
     for field in PAPER_RESET_ACCEPTED_FIELDS:
         value = getattr(request, field, None)
+        if value:
+            accepted_fields.append(field)
         if value is not None and str(value).strip():
             return str(value).strip(), accepted_fields
     return "", accepted_fields

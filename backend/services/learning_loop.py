@@ -15,6 +15,7 @@ import database as db
 from services.rl_agent import get_rl_agent
 
 logger = logging.getLogger(__name__)
+LEARNING_LOOP_TARGET_TIME = time(1, 30)
 
 # Strategy tuner import (non-blocking — missing dep never breaks the loop)
 try:
@@ -46,7 +47,7 @@ class LearningLoop:
     async def _schedule_loop(self):
         while self.is_running:
             now = datetime.now(timezone.utc)
-            target_time = time(1, 30)  # 01:30 UTC by default
+            target_time = LEARNING_LOOP_TARGET_TIME
             target_datetime = datetime.combine(now.date(), target_time).replace(tzinfo=timezone.utc)
             if now.time() >= target_time:
                 target_datetime = target_datetime + timedelta(days=1)

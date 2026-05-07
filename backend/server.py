@@ -3061,8 +3061,8 @@ async def diagnostics_sentiment_news(user_id: str = Depends(get_current_user)):
 async def diagnostics_learning_last_run(user_id: str = Depends(get_current_user)):
     """Learning loop last run diagnostics"""
     try:
-        from datetime import time, timedelta
-        from services.learning_loop import learning_loop
+        from datetime import timedelta
+        from services.learning_loop import LEARNING_LOOP_TARGET_TIME, learning_loop
 
         safety_parameter_prefixes = (
             "stop_loss",
@@ -3080,9 +3080,8 @@ async def diagnostics_learning_last_run(user_id: str = Depends(get_current_user)
         )
         next_run_at = None
         now = datetime.now(timezone.utc)
-        target_time = time(1, 30)
-        target_datetime = datetime.combine(now.date(), target_time).replace(tzinfo=timezone.utc)
-        if now.time() >= target_time:
+        target_datetime = datetime.combine(now.date(), LEARNING_LOOP_TARGET_TIME).replace(tzinfo=timezone.utc)
+        if now.time() >= LEARNING_LOOP_TARGET_TIME:
             target_datetime = target_datetime + timedelta(days=1)
         next_run_at = target_datetime.isoformat()
 
