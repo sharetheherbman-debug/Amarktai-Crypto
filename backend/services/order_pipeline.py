@@ -1529,9 +1529,56 @@ class OrderPipeline:
                     "reason": f"Signal engine unhealthy: {signal_health.get('reason', 'unknown')}",
                     "signal_health": signal_health,
                 }
+            signal_meta = signal_health.get("meta", {}) if isinstance(signal_health, dict) else {}
+            signal_status = signal_health.get("status", "unknown")
+            signal_diagnostics = signal_meta.get("diagnostics", {}) if isinstance(signal_meta, dict) else {}
+            if self._has_simulated_inputs(signal_diagnostics):
+                return {
+                    "passed": False,
+                    "reason": "Simulated/fake signal input detected",
+                    "signal_health": signal_health,
+                    "signal_status": signal_status,
+                }
             total_cost_bps = await self._calculate_total_cost_bps(
                 exchange=exchange, symbol=symbol, order_type=order_type
             )
+            expectancy_bps = edge_bps - total_cost_bps
+            raw_expectancy = signal_diagnostics.get("expectancy_bps")
+            if raw_expectancy is None:
+                raw_expectancy = signal_diagnostics.get("expectancy")
+            if raw_expectancy is None:
+                raw_expectancy = signal_diagnostics.get("expected_value_bps")
+            if raw_expectancy is not None and float(raw_expectancy) < 0:
+                return {
+                    "passed": False,
+                    "reason": f"Negative expectancy: {float(raw_expectancy):.2f} bps",
+                    "signal_health": signal_health,
+                    "signal_status": signal_status,
+                    "edge_bps": edge_bps,
+                    "total_cost_bps": total_cost_bps,
+                    "expectancy_bps": expectancy_bps,
+                }
+            if total_cost_bps > edge_bps:
+                return {
+                    "passed": False,
+                    "reason": f"Fees exceed expected edge: {total_cost_bps:.2f} > {edge_bps:.2f}",
+                    "signal_health": signal_health,
+                    "signal_status": signal_status,
+                    "edge_bps": edge_bps,
+                    "total_cost_bps": total_cost_bps,
+                }
+            if side == "buy" and await self._should_block_bearish_spot_long(
+                bot_id=bot_id,
+                signal_diagnostics=signal_diagnostics,
+            ):
+                return {
+                    "passed": False,
+                    "reason": "bearish_spot_no_short",
+                    "signal_health": signal_health,
+                    "signal_status": signal_status,
+                    "trade_direction": "FLAT",
+                    "skip_reason": "bearish_spot_no_short",
+                }
             if edge_bps >= total_cost_bps:
                 return {
                     "passed": True,
@@ -1540,7 +1587,9 @@ class OrderPipeline:
                     "details": {
                         "edge_bps": edge_bps,
                         "total_cost_bps": total_cost_bps,
+                        "expectancy_bps": expectancy_bps,
                         "signal_health": signal_health,
+                        "signal_status": signal_status,
                     }
                 }
             return {
@@ -1549,6 +1598,7 @@ class OrderPipeline:
                 "edge_bps": edge_bps,
                 "total_cost_bps": total_cost_bps,
                 "signal_health": signal_health,
+                "signal_status": signal_status,
             }
         except Exception as e:
             logger.error(f"Error in fee coverage check: {e}")
@@ -1669,6 +1719,7 @@ class OrderPipeline:
             self._last_signal_health = {
                 "status": "error",
                 "reason": "signal_engine_not_configured",
+                "meta": {"diagnostics": {}},
             }
             return 0.0
         try:
@@ -1685,18 +1736,89 @@ class OrderPipeline:
             diagnostics = getattr(signal, "diagnostics", {}) or {}
             if diagnostics.get("signal_status") == "error":
                 status = "error"
+            meta = {
+                "expected_edge_bps": float(getattr(signal, "expected_edge_bps", 0.0) or 0.0),
+                "diagnostics": diagnostics,
+                "regime": getattr(signal, "regime", "unknown"),
+            }
             if status != "ok":
                 self._last_signal_health = {
                     "status": status,
                     "reason": diagnostics.get("error", f"signal_status={status}"),
+                    "meta": meta,
                 }
                 return 0.0
-            self._last_signal_health = {"status": "ok", "reason": "healthy"}
+            self._last_signal_health = {"status": "ok", "reason": "healthy", "meta": meta}
             return float(signal.expected_edge_bps)
         except Exception as e:
-            self._last_signal_health = {"status": "error", "reason": str(e)}
+            self._last_signal_health = {
+                "status": "error",
+                "reason": str(e),
+                "meta": {"diagnostics": {}},
+            }
             logger.warning(f"SignalEngine._calculate_edge_bps error: {e}")
             return 0.0
+
+    def _has_simulated_inputs(self, payload: Any) -> bool:
+        """Recursively scan diagnostics payloads for simulated/fake signal markers.
+
+        Returns True when any nested dict/list value indicates simulated inputs,
+        including keys such as `is_simulated`, `fake_signal`, `fake_news`, or
+        any key containing `simulated` with a truthy value.
+        """
+        if isinstance(payload, dict):
+            for key, value in payload.items():
+                key_lower = str(key).lower()
+                if key_lower in {
+                    "is_simulated",
+                    "simulated",
+                    "fake",
+                    "fake_signal",
+                    "fake_news",
+                    "placeholder_sentiment",
+                } and bool(value):
+                    return True
+                if "simulated" in key_lower and bool(value):
+                    return True
+                if self._has_simulated_inputs(value):
+                    return True
+            return False
+        if isinstance(payload, list):
+            return any(self._has_simulated_inputs(item) for item in payload)
+        return False
+
+    async def _should_block_bearish_spot_long(self, bot_id: str, signal_diagnostics: Dict[str, Any]) -> bool:
+        """Return True when a LONG entry must be blocked for bearish spot conditions.
+
+        Blocking is bypassed only when all explicit shorting requirements are met:
+        market type is margin/futures, the bot supports shorting, live shorting is
+        enabled, and futures shorts are enabled via env flag. For spot bots, this
+        returns True when signal diagnostics indicate bearish direction/regime.
+        """
+        try:
+            bot = await self.db["bots"].find_one({"id": bot_id}, {"_id": 0, "market_type": 1, "supports_shorting": 1}) or {}
+        except Exception:
+            bot = {}
+
+        market_type = str(bot.get("market_type", "spot")).lower()
+        supports_shorting = bool(bot.get("supports_shorting", False))
+        live_shorting_enabled = os.getenv("LIVE_SHORTING_ENABLED", "false").lower() == "true"
+        futures_enabled = os.getenv("ENABLE_FUTURES_SHORTS", "false").lower() == "true"
+        if market_type in {"margin", "futures"} and supports_shorting and live_shorting_enabled and futures_enabled:
+            return False
+        if market_type != "spot":
+            return False
+
+        ml_block = str(signal_diagnostics.get("ml", {}).get("direction", "")).lower() == "down"
+        regime_block = str(signal_diagnostics.get("regime", {}).get("regime", "")).lower() in {
+            "stable_downtrend",
+            "volatile_downtrend",
+            "trending_down",
+            "bear",
+            "bearish",
+            "strong_bear",
+        }
+        return ml_block or regime_block
 
     async def _calculate_total_cost_bps(self, exchange: str = "", symbol: str = "",
                                           order_type: str = "market", **kwargs) -> float:

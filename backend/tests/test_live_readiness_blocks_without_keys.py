@@ -29,4 +29,4 @@ async def test_live_readiness_blocks_without_keys():
 
     result = await live_trading_readiness(user_id=user_id)
     assert result["status"] == "FAIL"
-    assert "exchange_keys_tested" in result["failed_checks"]
+    assert any("exchange_keys" in blocker for blocker in result["blockers"])

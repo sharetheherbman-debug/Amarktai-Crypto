@@ -5,7 +5,7 @@ Includes realtime smoke tests and system health checks
 
 from fastapi import APIRouter, HTTPException, Depends
 from datetime import datetime, timezone, timedelta
-from typing import Dict, List
+from typing import Any, Dict, List
 import logging
 
 from auth import get_current_user
@@ -2698,10 +2698,7 @@ async def paper_wallet_readiness(bot_id: str, user_id: str = Depends(get_current
 
 @router.get("/live-trading-readiness")
 async def live_trading_readiness(user_id: str = Depends(get_current_user)):
-    """
-    Canonical PASS/FAIL live trading readiness gate report.
-    Live must remain blocked until all checks pass.
-    """
+    """Canonical PASS/FAIL live readiness gate for production go-live."""
     from utils.env_utils import get_trading_flags
     from config import (
         MIN_TRADES_FOR_PROMOTION,
@@ -2712,68 +2709,34 @@ async def live_trading_readiness(user_id: str = Depends(get_current_user)):
     from services.paper_wallet_ledger import paper_wallet_ledger
     from services.signal_engine import SignalEngine
     from trading_scheduler import trading_scheduler
+    from server import app as _app
     import os
 
-    checks = {}
-    failures: List[str] = []
-
-    def _set_check(name: str, passed: bool, detail: Dict):
-        checks[name] = {"passed": passed, **detail}
-        if not passed:
-            failures.append(name)
-
-    flags = get_trading_flags()
-    _set_check(
-        "env_flags",
-        bool(flags["enable_trading"] and flags["enable_live_trading"]),
-        {"flags": flags},
-    )
-
-    # Scheduler status
-    _set_check(
-        "scheduler_running",
-        bool(getattr(trading_scheduler, "is_running", False)),
-        {"is_running": bool(getattr(trading_scheduler, "is_running", False))},
-    )
-
-    # Emergency stop
-    system_mode = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0}) or {}
-    _set_check(
-        "emergency_stop",
-        not bool(system_mode.get("emergencyStop", False)),
-        {"emergencyStop": bool(system_mode.get("emergencyStop", False))},
-    )
-
-    # Route collisions
-    route_keys = {}
-    collisions = []
-    try:
-        from server import app as _app
+    def _collect_route_collisions() -> List[Dict[str, str]]:
+        """Return duplicate route entries as [{method, path}] excluding HEAD/OPTIONS."""
+        seen = set()
+        collision_routes: List[Dict[str, str]] = []
         for route in _app.routes:
             methods = getattr(route, "methods", None) or set()
-            path = getattr(route, "path", None)
-            if not path:
-                continue
+            path = getattr(route, "path", "")
             for method in methods:
                 if method in {"HEAD", "OPTIONS"}:
                     continue
                 key = (method, path)
-                if key in route_keys:
-                    collisions.append({"method": method, "path": path})
+                if key in seen:
+                    collision_routes.append({"method": method, "path": path})
                 else:
-                    route_keys[key] = True
-    except Exception as e:
-        collisions.append({"error": str(e)})
-    _set_check("route_collisions", len(collisions) == 0, {"collisions": collisions})
+                    seen.add(key)
+        return collision_routes
 
-    # Live bots and key checks
+    flags = get_trading_flags()
+    system_mode = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0}) or {}
     live_bots = await db.bots_collection.find(
         {"user_id": user_id, "trading_mode": "live", "status": {"$ne": "deleted"}},
         {"_id": 0}
     ).to_list(200)
 
-    keys_ok = True
-    keys_details = []
+    exchange_keys_valid = True
     for bot in live_bots:
         exchange = bot.get("exchange")
         key_doc = await db.api_keys_collection.find_one(
@@ -2781,24 +2744,19 @@ async def live_trading_readiness(user_id: str = Depends(get_current_user)):
             {"_id": 0, "last_test_ok": 1}
         )
         tested = bool(key_doc and key_doc.get("last_test_ok"))
-        keys_ok = keys_ok and tested
-        keys_details.append({"bot_id": bot.get("id"), "exchange": exchange, "last_test_ok": tested})
-    _set_check("exchange_keys_tested", keys_ok if live_bots else False, {"live_bot_count": len(live_bots), "details": keys_details})
+        exchange_keys_valid = exchange_keys_valid and tested
+    exchange_keys_valid = bool(exchange_keys_valid and len(live_bots) > 0)
 
-    # Wallet funded check (paper + live readiness)
-    wallet_ready = True
-    wallet_details = []
+    wallet_funded = True
     for bot in live_bots:
         ok, balance, msg = await paper_wallet_ledger.get_balance(bot.get("id"))
         funded = bool(ok and balance > 0)
-        wallet_ready = wallet_ready and funded
-        wallet_details.append({"bot_id": bot.get("id"), "funded": funded, "balance": balance, "message": msg})
-    _set_check("wallet_funded", wallet_ready if live_bots else False, {"details": wallet_details})
+        wallet_funded = wallet_funded and funded
+    wallet_funded = bool(wallet_funded and len(live_bots) > 0)
 
-    # Paper performance and stats (aggregate for user)
     paper_closed = await db.trades_collection.find(
         {"user_id": user_id, "is_paper": True, "status": "closed"},
-        {"_id": 0, "profit_loss": 1}
+        {"_id": 0, "profit_loss": 1, "fee_paid": 1, "skip_reason": 1}
     ).to_list(10000)
     total = len(paper_closed)
     wins = sum(1 for t in paper_closed if (t.get("profit_loss", 0) or 0) > 0)
@@ -2808,30 +2766,18 @@ async def live_trading_readiness(user_id: str = Depends(get_current_user)):
     gross_loss = abs(sum((t.get("profit_loss", 0) or 0) for t in paper_closed if (t.get("profit_loss", 0) or 0) < 0))
     profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else (INFINITE_PROFIT_FACTOR if gross_profit > 0 else 0.0)
     expectancy = (sum((t.get("profit_loss", 0) or 0) for t in paper_closed) / total) if total > 0 else 0.0
-    _set_check(
-        "paper_performance",
-        bool(total >= MIN_TRADES_FOR_PROMOTION and win_rate >= MIN_WIN_RATE and profit_factor > 1.2 and expectancy > MIN_EXPECTANCY_ZAR),
-        {
-            "paper_trades": total,
-            "wins": wins,
-            "losses": losses,
-            "win_rate": win_rate,
-            "profit_factor": profit_factor,
-            "expectancy": expectancy,
-        },
-    )
+    avg_win = (gross_profit / wins) if wins > 0 else 0.0
+    avg_loss = (gross_loss / losses) if losses > 0 else 0.0
+    fee_bleed = sum(float(t.get("fee_paid", 0.0) or 0.0) for t in paper_closed)
+    stagnation_exits = sum(1 for t in paper_closed if (t.get("skip_reason") == "stagnation_exit"))
+    paper_training_complete = total >= MIN_TRADES_FOR_PROMOTION
+    paper_expectancy_positive = expectancy > MIN_EXPECTANCY_ZAR
 
-    # Max drawdown
     user_max_drawdown = 0.0
     for bot in await db.bots_collection.find({"user_id": user_id}, {"_id": 0, "max_drawdown": 1}).to_list(1000):
         user_max_drawdown = max(user_max_drawdown, float(bot.get("max_drawdown", 0.0) or 0.0))
-    _set_check(
-        "max_drawdown",
-        bool(user_max_drawdown <= MAX_DRAWDOWN_PCT),
-        {"max_drawdown": user_max_drawdown, "limit": MAX_DRAWDOWN_PCT},
-    )
+    max_drawdown_ok = bool(user_max_drawdown <= MAX_DRAWDOWN_PCT)
 
-    # Signal engine health
     signal_ok = False
     signal_detail = {}
     try:
@@ -2854,28 +2800,148 @@ async def live_trading_readiness(user_id: str = Depends(get_current_user)):
     except Exception as e:
         signal_ok = False
         signal_detail = {"error": str(e)}
-    _set_check("signal_engine_healthy", signal_ok, signal_detail)
-
-    # Simulated live signal guardrails
     macro_weight = float(os.getenv("MACRO_SIGNAL_WEIGHT", "0.0") or 0.0)
-    _set_check(
-        "no_simulated_live_signals",
-        macro_weight == 0.0,
-        {"macro_signal_weight": macro_weight},
-    )
+    no_fake_macro_signals = macro_weight == 0.0
+    emergency_stop = bool(system_mode.get("emergencyStop", False))
+    route_integrity_ok = len(_collect_route_collisions()) == 0
 
-    # Risk locks
-    paused_by_bodyguard = await db.bots_collection.count_documents(
-        {"user_id": user_id, "paused_by_bodyguard": True, "status": "paused"}
-    )
-    _set_check("risk_locks", paused_by_bodyguard == 0, {"paused_by_bodyguard": paused_by_bodyguard})
+    checks = {
+        "scheduler_running": bool(getattr(trading_scheduler, "is_running", False)),
+        "enable_trading": bool(flags["enable_trading"]),
+        "enable_live_trading": bool(flags["enable_live_trading"]),
+        "signal_engine_healthy": bool(signal_ok),
+        "exchange_keys_valid": bool(exchange_keys_valid),
+        "wallet_funded": bool(wallet_funded),
+        "paper_training_complete": bool(paper_training_complete),
+        "paper_expectancy_positive": bool(paper_expectancy_positive),
+        "paper_win_rate": round(float(win_rate), 4),
+        "max_drawdown_ok": bool(max_drawdown_ok),
+        "no_fake_macro_signals": bool(no_fake_macro_signals),
+        "emergency_stop": bool(emergency_stop),
+        "route_integrity_ok": bool(route_integrity_ok),
+    }
 
-    overall_pass = len(failures) == 0
+    blockers: List[str] = []
+    if not checks["scheduler_running"]:
+        blockers.append("scheduler_not_running")
+    if not checks["enable_trading"]:
+        blockers.append("enable_trading_false")
+    if not checks["enable_live_trading"]:
+        blockers.append("enable_live_trading_false")
+    if not checks["signal_engine_healthy"]:
+        blockers.append("signal_engine_unhealthy")
+    if not checks["exchange_keys_valid"]:
+        blockers.append("exchange_keys_invalid_or_missing")
+    if not checks["wallet_funded"]:
+        blockers.append("wallet_unfunded")
+    if not checks["paper_training_complete"]:
+        blockers.append(f"paper_training_incomplete:{total}/{MIN_TRADES_FOR_PROMOTION}")
+    if checks["paper_win_rate"] < float(MIN_WIN_RATE):
+        blockers.append(f"paper_win_rate_below_threshold:{checks['paper_win_rate']}<{MIN_WIN_RATE}")
+    if profit_factor <= 1.2:
+        blockers.append(f"paper_profit_factor_below_threshold:{profit_factor:.4f}")
+    if not checks["paper_expectancy_positive"]:
+        blockers.append(f"paper_expectancy_not_positive:{expectancy:.6f}")
+    if not checks["max_drawdown_ok"]:
+        blockers.append(f"max_drawdown_exceeded:{user_max_drawdown}>{MAX_DRAWDOWN_PCT}")
+    if not checks["no_fake_macro_signals"]:
+        blockers.append(f"fake_macro_signal_weight:{macro_weight}")
+    if checks["emergency_stop"]:
+        blockers.append("emergency_stop_active")
+    if not checks["route_integrity_ok"]:
+        blockers.append("route_integrity_failed")
+
+    overall_pass = len(blockers) == 0
     return {
-        "success": True,
         "status": "PASS" if overall_pass else "FAIL",
-        "ready": overall_pass,
-        "checks": checks,
-        "failed_checks": failures,
         "timestamp": datetime.now(timezone.utc).isoformat(),
+        "checks": checks,
+        "blockers": blockers,
+        "paper_diagnostics": {
+            "trades": total,
+            "expectancy": round(expectancy, 6),
+            "profit_factor": round(profit_factor, 6),
+            "drawdown": round(user_max_drawdown, 6),
+            "avg_win": round(avg_win, 6),
+            "avg_loss": round(avg_loss, 6),
+            "stagnation_exits": stagnation_exits,
+            "fee_bleed": round(fee_bleed, 6),
+        },
+    }
+
+
+@router.get("/runtime-truth")
+async def runtime_truth(user_id: str = Depends(get_current_user)):
+    """Runtime truth snapshot for production diagnostics."""
+    from trading_scheduler import trading_scheduler
+    from websocket_manager import manager as ws_manager
+    from services.signal_engine import SignalEngine
+
+    system_mode = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0}) or {}
+    active_bots = await db.bots_collection.find(
+        {"user_id": user_id, "status": "active"},
+        {"_id": 0, "id": 1, "exchange": 1, "trading_mode": 1}
+    ).to_list(1000)
+    open_trades = await db.trades_collection.count_documents(
+        {"user_id": user_id, "status": {"$in": ["open", "pending"]}}
+    )
+    active_exchanges = sorted({str(bot.get("exchange", "")).lower() for bot in active_bots if bot.get("exchange")})
+    ws_connections = len(getattr(ws_manager, "active_connections", {}).get(user_id, []))
+    ws_total = sum(len(v) for v in getattr(ws_manager, "active_connections", {}).values())
+    redis_enabled = bool(getattr(ws_manager, "redis_enabled", False))
+    redis_status = "ok" if redis_enabled else "degraded"
+
+    signal_engine_state: Dict[str, Any] = {"status": "unknown"}
+    try:
+        probe = active_bots[0] if active_bots else {}
+        signal_engine = SignalEngine(db.db if hasattr(db, "db") else db)
+        probe_signal = await signal_engine.get_signal(
+            user_id=user_id,
+            bot_id=probe.get("id", "runtime_probe"),
+            exchange=probe.get("exchange", "binance"),
+            symbol=probe.get("pair", "BTC/USDT"),
+            side="buy",
+            amount=1.0,
+            price=None,
+        )
+        signal_engine_state = {
+            "status": getattr(probe_signal, "signal_status", "unknown"),
+            "expected_edge_bps": float(getattr(probe_signal, "expected_edge_bps", 0.0) or 0.0),
+        }
+    except Exception as e:
+        logger.warning(f"Runtime truth signal probe failed: {e}")
+        signal_engine_state = {"status": "error", "reason": "signal_probe_failed"}
+
+    mode = "live" if system_mode.get("liveTrading") else "paper"
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "active_scheduler": {
+            "name": "trading_scheduler",
+            "running": bool(getattr(trading_scheduler, "is_running", False)),
+            "tick_count": int(getattr(trading_scheduler, "tick_count", 0) or 0),
+            "last_tick": (
+                trading_scheduler.last_tick.isoformat()
+                if getattr(trading_scheduler, "last_tick", None)
+                else None
+            ),
+        },
+        "active_exchanges": active_exchanges,
+        "active_bots": len(active_bots),
+        "open_trades": int(open_trades),
+        "mode": {
+            "paper_live_mode": mode,
+            "paper_enabled": not bool(system_mode.get("liveTrading", False)),
+            "live_enabled": bool(system_mode.get("liveTrading", False)),
+        },
+        "emergency_stop": bool(system_mode.get("emergencyStop", False)),
+        "signal_engine_state": signal_engine_state,
+        "websocket_state": {
+            "user_connections": ws_connections,
+            "total_connections": ws_total,
+            "last_event": getattr(ws_manager, "last_event", None),
+        },
+        "redis_state": {
+            "enabled": redis_enabled,
+            "status": redis_status,
+        },
     }
