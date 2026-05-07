@@ -524,6 +524,20 @@ class TradingScheduler:
                     side = 'buy'  # Default to buy in neutral/unknown regimes
             except Exception:
                 side = 'buy'  # Safe default — avoid random
+
+            # Never short spot by default.
+            market_type = str(bot.get("market_type", "spot")).lower()
+            supports_shorting = bool(bot.get("supports_shorting", False))
+            live_shorting_enabled = env_bool("LIVE_SHORTING_ENABLED", False)
+            if side == "sell" and not (
+                market_type in {"margin", "futures"} and supports_shorting and live_shorting_enabled
+            ):
+                return {
+                    "success": False,
+                    "bot_id": bot["id"],
+                    "trade_direction": "FLAT",
+                    "skip_reason": "bearish_spot_no_short",
+                }
             
             # Calculate amount
             # For live trading, we need to get real price first
@@ -631,6 +645,7 @@ class TradingScheduler:
                     "is_live": True,
                     "exchange_order_id": trade_result.get("order_id") or trade_result.get("id"),
                     "trade_close_reason": "live_fill",
+                    "trade_direction": "LONG" if side == "buy" else "SHORT",
                     "realized_pnl": trade_result.get("net_profit", 0),
                     "fee_paid": trade_result.get("fees", trade_result.get("fee", 0))
                 },

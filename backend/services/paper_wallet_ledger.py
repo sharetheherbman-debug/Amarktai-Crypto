@@ -148,9 +148,10 @@ class PaperWalletLedger:
             if not ledger:
                 bot = await db.bots_collection.find_one(
                     {"id": bot_id},
-                    {"_id": 0, "user_id": 1, "initial_capital": 1}
+                    {"_id": 0, "user_id": 1, "initial_capital": 1, "trading_mode": 1, "mode": 1}
                 )
-                if bot and bot.get("initial_capital", 0) > 0:
+                mode = str((bot or {}).get("trading_mode") or (bot or {}).get("mode") or "paper").lower()
+                if bot and mode.startswith("paper") and bot.get("initial_capital", 0) > 0:
                     currency = self._resolve_bot_currency(bot)
                     success, _ = await self.reserve_funds(
                         bot.get("user_id"),

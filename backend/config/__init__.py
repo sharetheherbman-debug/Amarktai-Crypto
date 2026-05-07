@@ -104,7 +104,7 @@ PAPER_MAX_HOLD_MINUTES = int(os.getenv('PAPER_MAX_HOLD_MINUTES', '120'))
 PAPER_SAFETY_EXIT_MINUTES = int(os.getenv('PAPER_SAFETY_EXIT_MINUTES', '60'))
 # Stagnation exit: close if price hasn't moved beyond estimated round-trip cost
 # (fees + spread) for this many minutes.  Prevents idle capital.  Default: 10 min.
-STAGNATION_EXIT_MINUTES = int(os.getenv('STAGNATION_EXIT_MINUTES', '10'))
+STAGNATION_EXIT_MINUTES = int(os.getenv('STAGNATION_EXIT_MINUTES', '30'))
 # Fee break-even exit: close when the trade has been open at least this long AND
 # the unrealised PnL is definitively below -round_trip_cost_pct (the loss already
 # exceeds what fees/spread would cost even at breakeven).  Default: 10 min.
@@ -180,7 +180,7 @@ RISK_MODE_CONFIG: dict = {
     "safe": {
         "max_hold_minutes": int(os.getenv('SAFE_MAX_HOLD_MINUTES', '60')),
         "safety_exit_minutes": int(os.getenv('SAFE_SAFETY_EXIT_MINUTES', '30')),
-        "take_profit_pct": float(os.getenv('SAFE_TAKE_PROFIT_PCT', '0.015')),
+        "take_profit_pct": float(os.getenv('SAFE_TAKE_PROFIT_PCT', '0.022')),
         "stop_loss_pct": float(os.getenv('SAFE_STOP_LOSS_PCT', '0.010')),
         "position_size_pct": float(os.getenv('SAFE_POSITION_SIZE_PCT', '0.20')),
         "min_confidence": float(os.getenv('SAFE_MIN_CONFIDENCE', '0.65')),
@@ -191,7 +191,7 @@ RISK_MODE_CONFIG: dict = {
     "balanced": {
         "max_hold_minutes": int(os.getenv('BALANCED_MAX_HOLD_MINUTES', '90')),
         "safety_exit_minutes": int(os.getenv('BALANCED_SAFETY_EXIT_MINUTES', '45')),
-        "take_profit_pct": float(os.getenv('BALANCED_TAKE_PROFIT_PCT', '0.025')),
+        "take_profit_pct": float(os.getenv('BALANCED_TAKE_PROFIT_PCT', '0.030')),
         "stop_loss_pct": float(os.getenv('BALANCED_STOP_LOSS_PCT', '0.015')),
         "position_size_pct": float(os.getenv('BALANCED_POSITION_SIZE_PCT', '0.30')),
         "min_confidence": float(os.getenv('BALANCED_MIN_CONFIDENCE', '0.60')),
@@ -201,7 +201,7 @@ RISK_MODE_CONFIG: dict = {
     "aggressive": {
         "max_hold_minutes": int(os.getenv('AGGRESSIVE_MAX_HOLD_MINUTES', '120')),
         "safety_exit_minutes": int(os.getenv('AGGRESSIVE_SAFETY_EXIT_MINUTES', '60')),
-        "take_profit_pct": float(os.getenv('AGGRESSIVE_TAKE_PROFIT_PCT', '0.04')),
+        "take_profit_pct": float(os.getenv('AGGRESSIVE_TAKE_PROFIT_PCT', '0.045')),
         "stop_loss_pct": float(os.getenv('AGGRESSIVE_STOP_LOSS_PCT', '0.025')),
         "position_size_pct": float(os.getenv('AGGRESSIVE_POSITION_SIZE_PCT', '0.45')),
         "min_confidence": float(os.getenv('AGGRESSIVE_MIN_CONFIDENCE', '0.55')),
@@ -267,10 +267,10 @@ MAX_ERRORS_PER_HOUR = int(os.getenv('MAX_ERRORS_PER_HOUR', '20'))  # Error budge
 
 # AI Models
 AI_MODELS = {
-    'system_brain': 'gpt-5.1',
-    'trade_decision': 'gpt-4o',
-    'reporting': 'gpt-4',
-    'chatops': 'gpt-4o'
+    'system_brain': os.getenv('OPENAI_SYSTEM_MODEL', 'gpt-4o'),
+    'trade_decision': os.getenv('OPENAI_TRADE_MODEL', 'gpt-4o'),
+    'reporting': os.getenv('OPENAI_REPORT_MODEL', 'gpt-4o-mini'),
+    'chatops': os.getenv('OPENAI_TRADE_MODEL', 'gpt-4o')
 }
 
 # Feature flags

@@ -600,8 +600,11 @@ async def create_bot(bot: BotCreate, user_id: str = Depends(get_current_user)):
         if not reserved:
             await db.bots_collection.delete_one({"id": result["id"]})
             raise HTTPException(status_code=400, detail=reserve_msg)
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.warning(f"Paper wallet reservation failed for bot {result.get('id')}: {e}")
+        await db.bots_collection.delete_one({"id": result["id"]})
+        raise HTTPException(status_code=400, detail=f"Paper wallet reservation failed: {e}")
     
     # Remove MongoDB _id before returning
     result.pop('_id', None)

@@ -39,6 +39,7 @@ class SignalOutput:
     suggested_size_multiplier: float  # 0.5 to 1.5
     rationale: str  # Short explanation
     diagnostics: Dict[str, Any]  # Optional detailed info
+    signal_status: str = "ok"  # ok|error|simulated
 
 
 class SignalEngine:
@@ -163,7 +164,8 @@ class SignalEngine:
                 suggested_order_type=suggested_order_type,
                 suggested_size_multiplier=suggested_size_multiplier,
                 rationale=rationale,
-                diagnostics=diagnostics
+                diagnostics=diagnostics,
+                signal_status="ok"
             )
             
             # Cache result
@@ -175,14 +177,15 @@ class SignalEngine:
             logger.error(f"Error generating signal: {e}")
             # Return safe fallback
             return SignalOutput(
-                expected_edge_bps=self.min_edge_bps,
-                confidence=0.3,
+                expected_edge_bps=0.0,
+                confidence=0.0,
                 regime='unknown',
-                risk_score=0.8,
+                risk_score=1.0,
                 suggested_order_type='limit',
                 suggested_size_multiplier=0.5,
                 rationale=f"Error in signal generation: {str(e)[:100]}",
-                diagnostics={'error': str(e)}
+                diagnostics={'error': str(e), 'signal_status': 'error'},
+                signal_status="error",
             )
     
     async def _get_market_regime(self, symbol: str, exchange: str) -> Dict[str, Any]:
@@ -317,6 +320,7 @@ class SignalEngine:
         to prevent fabricated data from driving real order decisions.
         """
         live_trading_active = os.getenv("ENABLE_LIVE_TRADING", "false").lower() == "true"
+        edge = 0.0
 
         # 1. ML prediction contribution
         ml_is_simulated = ml.get('is_simulated', False)

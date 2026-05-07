@@ -16,6 +16,7 @@ All order outcomes are recorded to the immutable ledger and broadcast to realtim
 import asyncio
 import uuid
 import random
+import os
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional, List
 from collections import defaultdict
@@ -37,6 +38,7 @@ class OrderPipeline:
         self.config = config or {}
         self.signal_engine = signal_engine
         self.realtime_broadcaster = realtime_broadcaster
+        self._last_signal_health = {"status": "unknown", "reason": "not_evaluated"}
         
         # Collections (safe for testing with Mock db objects)
         try:
@@ -247,7 +249,7 @@ class OrderPipeline:
             gate_result = await self._check_fee_coverage(
                 user_id=user_id, bot_id=bot_id, exchange=exchange,
                 symbol=symbol, side=side, amount=amount,
-                order_type=order_type, price=price
+                order_type=order_type, price=price, is_paper=is_paper
             )
             if not gate_result["passed"]:
                 result["gate_failed"] = "fee_coverage"
@@ -1512,10 +1514,21 @@ class OrderPipeline:
                                     order_type: str = "market", **kwargs) -> Dict[str, Any]:
         """Fee coverage check using helper methods so tests can patch them."""
         try:
+            is_paper = bool(kwargs.get("is_paper", False))
+            allow_signal_fallback = (
+                is_paper and os.getenv("PAPER_DEBUG_ALLOW_SIGNAL_ERRORS", "false").lower() == "true"
+            )
             edge_bps = await self._calculate_edge_bps(
                 user_id=user_id, bot_id=bot_id, exchange=exchange,
                 symbol=symbol, side=side, amount=amount, price=price
             )
+            signal_health = getattr(self, "_last_signal_health", {"status": "unknown"})
+            if signal_health.get("status") != "ok" and not allow_signal_fallback:
+                return {
+                    "passed": False,
+                    "reason": f"Signal engine unhealthy: {signal_health.get('reason', 'unknown')}",
+                    "signal_health": signal_health,
+                }
             total_cost_bps = await self._calculate_total_cost_bps(
                 exchange=exchange, symbol=symbol, order_type=order_type
             )
@@ -1524,13 +1537,18 @@ class OrderPipeline:
                     "passed": True,
                     "edge_bps": edge_bps,
                     "total_cost_bps": total_cost_bps,
-                    "details": {"edge_bps": edge_bps, "total_cost_bps": total_cost_bps}
+                    "details": {
+                        "edge_bps": edge_bps,
+                        "total_cost_bps": total_cost_bps,
+                        "signal_health": signal_health,
+                    }
                 }
             return {
                 "passed": False,
                 "reason": f"Insufficient edge: {edge_bps:.1f} bps expected vs {total_cost_bps:.1f} bps costs",
                 "edge_bps": edge_bps,
                 "total_cost_bps": total_cost_bps,
+                "signal_health": signal_health,
             }
         except Exception as e:
             logger.error(f"Error in fee coverage check: {e}")
@@ -1642,13 +1660,17 @@ class OrderPipeline:
                                     side: str = "", amount: float = 0,
                                     price: Optional[float] = None, **kwargs) -> float:
         """Return expected edge in basis points.
-        Calls SignalEngine when available; falls back to min_edge_bps so the
-        fee-coverage check still runs meaningfully in tests.
-        Returns a very high value when no signal engine is configured so the fee
-        coverage check passes by default (tests may patch this method directly).
+        Calls SignalEngine and records signal health.
+        Returns 0.0 when signal health is not ok so Gate B can hard-block unsafe
+        orders (unless explicit paper debug override is enabled).
         """
+        self._last_signal_health = {"status": "unknown", "reason": "not_evaluated"}
         if not self.signal_engine:
-            return 1e9  # effectively bypass edge check when no signal engine
+            self._last_signal_health = {
+                "status": "error",
+                "reason": "signal_engine_not_configured",
+            }
+            return 0.0
         try:
             signal = await self.signal_engine.get_signal(
                 user_id=user_id,
@@ -1659,10 +1681,22 @@ class OrderPipeline:
                 amount=amount,
                 price=price,
             )
+            status = getattr(signal, "signal_status", "ok")
+            diagnostics = getattr(signal, "diagnostics", {}) or {}
+            if diagnostics.get("signal_status") == "error":
+                status = "error"
+            if status != "ok":
+                self._last_signal_health = {
+                    "status": status,
+                    "reason": diagnostics.get("error", f"signal_status={status}"),
+                }
+                return 0.0
+            self._last_signal_health = {"status": "ok", "reason": "healthy"}
             return float(signal.expected_edge_bps)
         except Exception as e:
-            logger.warning(f"SignalEngine._calculate_edge_bps fallback: {e}")
-            return float(self.min_edge_bps)
+            self._last_signal_health = {"status": "error", "reason": str(e)}
+            logger.warning(f"SignalEngine._calculate_edge_bps error: {e}")
+            return 0.0
 
     async def _calculate_total_cost_bps(self, exchange: str = "", symbol: str = "",
                                           order_type: str = "market", **kwargs) -> float:

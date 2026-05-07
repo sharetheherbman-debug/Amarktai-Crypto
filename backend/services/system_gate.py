@@ -8,7 +8,7 @@ from typing import Dict, Tuple
 from datetime import datetime, timezone
 import database as db
 from logger_config import logger
-from utils.env_utils import env_bool
+from utils.env_utils import env_bool, get_trading_flags
 
 
 class SystemGateService:
@@ -21,12 +21,17 @@ class SystemGateService:
     VALID_TRADING_MODES = ["paper", "live"]
     
     def __init__(self):
-        # Read environment flags
-        self.trading_enabled = env_bool("ENABLE_TRADING", False)
-        self.autopilot_enabled = env_bool("ENABLE_AUTOPILOT", False)
+        flags = get_trading_flags()
+        self.trading_enabled = flags["enable_trading"]
+        self.autopilot_enabled = flags["enable_autopilot"]
         self.ccxt_enabled = env_bool("ENABLE_CCXT", True)
-        
-        logger.info(f"System Gate initialized: Trading={self.trading_enabled}, Autopilot={self.autopilot_enabled}")
+        logger.info(
+            "System Gate initialized: Trading=%s, Paper=%s, Live=%s, Autopilot=%s",
+            flags["enable_trading"],
+            flags["enable_paper_trading"],
+            flags["enable_live_trading"],
+            flags["enable_autopilot"],
+        )
     
     async def get_system_status(self) -> Dict:
         """
@@ -67,11 +72,15 @@ class SystemGateService:
             # Determine if trading is allowed
             trading_allowed = False
             reason = ""
+            flags = get_trading_flags()
             
             if emergency_stop:
                 reason = "Emergency stop is active"
-            elif not self.trading_enabled:
-                reason = "Trading is disabled in environment (ENABLE_TRADING=false)"
+            elif not flags["enable_trading"]:
+                reason = (
+                    "Trading is disabled (ENABLE_TRADING=false). "
+                    f"Paper={flags['enable_paper_trading']}, Live={flags['enable_live_trading']}"
+                )
             elif mode not in self.VALID_TRADING_MODES:
                 reason = f"Invalid mode '{mode}' - must be paper or live"
             else:
@@ -81,8 +90,10 @@ class SystemGateService:
             return {
                 "trading_allowed": trading_allowed,
                 "mode": mode,
-                "trading_enabled": self.trading_enabled,
-                "autopilot_enabled": self.autopilot_enabled,
+                "trading_enabled": flags["enable_trading"],
+                "autopilot_enabled": flags["enable_autopilot"],
+                "paper_trading_enabled": flags["enable_paper_trading"],
+                "live_trading_enabled": flags["enable_live_trading"],
                 "ccxt_enabled": self.ccxt_enabled,
                 "emergency_stop": emergency_stop,
                 "reason": reason,
@@ -140,7 +151,7 @@ class SystemGateService:
         """
         try:
             # Check if autopilot is enabled
-            if not self.autopilot_enabled:
+            if not get_trading_flags()["enable_autopilot"]:
                 return False, "Autopilot is disabled (ENABLE_AUTOPILOT=false)"
             
             # Check if trading is allowed
@@ -200,10 +211,19 @@ class SystemGateService:
         Returns:
             (should_run, reason)
         """
-        if not self.trading_enabled:
-            return False, "Trading disabled (ENABLE_TRADING=false)"
-        
-        return True, "Scheduler can proceed"
+        flags = get_trading_flags()
+        if not flags["enable_trading"]:
+            return (
+                False,
+                "Trading disabled by flags: ENABLE_TRADING=false "
+                f"(paper={flags['enable_paper_trading']}, live={flags['enable_live_trading']})",
+            )
+        if not (flags["enable_paper_trading"] or flags["enable_live_trading"]):
+            return False, "Trading blocked: neither paper nor live mode is enabled"
+        return (
+            True,
+            f"Scheduler can proceed (paper={flags['enable_paper_trading']}, live={flags['enable_live_trading']})",
+        )
 
 
 # Singleton instance
