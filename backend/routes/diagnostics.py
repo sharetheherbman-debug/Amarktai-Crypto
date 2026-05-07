@@ -2713,8 +2713,9 @@ async def live_trading_readiness(user_id: str = Depends(get_current_user)):
     import os
 
     def _collect_route_collisions() -> List[Dict[str, str]]:
+        """Return duplicate route entries as [{method, path}] excluding HEAD/OPTIONS."""
         seen = set()
-        duplicates: List[Dict[str, str]] = []
+        collision_routes: List[Dict[str, str]] = []
         for route in _app.routes:
             methods = getattr(route, "methods", None) or set()
             path = getattr(route, "path", "")
@@ -2723,10 +2724,10 @@ async def live_trading_readiness(user_id: str = Depends(get_current_user)):
                     continue
                 key = (method, path)
                 if key in seen:
-                    duplicates.append({"method": method, "path": path})
+                    collision_routes.append({"method": method, "path": path})
                 else:
                     seen.add(key)
-        return duplicates
+        return collision_routes
 
     flags = get_trading_flags()
     system_mode = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0}) or {}

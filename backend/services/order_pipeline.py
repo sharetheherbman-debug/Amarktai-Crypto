@@ -1760,7 +1760,12 @@ class OrderPipeline:
             return 0.0
 
     def _has_simulated_inputs(self, payload: Any) -> bool:
-        """True when diagnostics contains simulated/fake markers."""
+        """Recursively scan diagnostics payloads for simulated/fake signal markers.
+
+        Returns True when any nested dict/list value indicates simulated inputs,
+        including keys such as `is_simulated`, `fake_signal`, `fake_news`, or
+        any key containing `simulated` with a truthy value.
+        """
         if isinstance(payload, dict):
             for key, value in payload.items():
                 key_lower = str(key).lower()
@@ -1783,7 +1788,13 @@ class OrderPipeline:
         return False
 
     async def _should_block_bearish_spot_long(self, bot_id: str, signal_diagnostics: Dict[str, Any]) -> bool:
-        """Block LONG entries for bearish spot signals unless futures shorting is explicitly enabled."""
+        """Return True when a LONG entry must be blocked for bearish spot conditions.
+
+        Blocking is bypassed only when all explicit shorting requirements are met:
+        market type is margin/futures, the bot supports shorting, live shorting is
+        enabled, and futures shorts are enabled via env flag. For spot bots, this
+        returns True when signal diagnostics indicate bearish direction/regime.
+        """
         try:
             bot = await self.db["bots"].find_one({"id": bot_id}, {"_id": 0, "market_type": 1, "supports_shorting": 1}) or {}
         except Exception:
