@@ -3088,6 +3088,7 @@ async def diagnostics_learning_last_run(user_id: str = Depends(get_current_user)
         if not last_run:
             return {
                 "enabled": enabled,
+                "scheduled": enabled,
                 "last_run_at": None,
                 "next_run_at": next_run_at if enabled else None,
                 "last_result": "never_run",
@@ -3099,14 +3100,19 @@ async def diagnostics_learning_last_run(user_id: str = Depends(get_current_user)
                 "bots_updated_count": 0,
                 "errors_count": 0,
                 "status": "never_run",
+                "last_error": None,
             }
         changes = ((last_run.get("report") or {}).get("changes") or [])
         safety_changes = [
             change for change in changes
             if str(change.get("parameter", "")).startswith(safety_parameter_prefixes)
         ]
+        last_error = last_run.get("error") or last_run.get("error_message") or (
+            last_run.get("summary") if last_run.get("status") == "error" else None
+        )
         return {
             "enabled": enabled,
+            "scheduled": enabled,
             "last_run_at": last_run.get("completed_at") or (learning_loop.last_run.isoformat() if learning_loop.last_run else None),
             "next_run_at": next_run_at if enabled else None,
             "last_result": last_run.get("status"),
@@ -3120,6 +3126,7 @@ async def diagnostics_learning_last_run(user_id: str = Depends(get_current_user)
             "status": last_run.get("status"),
             "run_id": last_run.get("run_id"),
             "summary": last_run.get("summary"),
+            "last_error": last_error,
         }
     except Exception as e:
         logger.error(f"Learning diagnostics error: {e}")

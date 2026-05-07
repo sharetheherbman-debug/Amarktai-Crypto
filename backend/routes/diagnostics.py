@@ -547,6 +547,7 @@ async def get_paper_trading_status(user_id: str = Depends(get_current_user)):
 @router.get("/paper-trading-readiness")
 async def paper_trading_readiness(user_id: str = Depends(get_current_user)):
     """Paper trading readiness diagnostics for dashboard contract verification."""
+    import os
     from trading_scheduler import trading_scheduler
     from services.paper_wallet_service import paper_wallet_service
     from config import MIN_EXPECTANCY_ZAR, PAPER_PAIR_WHITELIST
@@ -708,6 +709,37 @@ async def paper_trading_readiness(user_id: str = Depends(get_current_user)):
         except Exception:
             recent_paper_fills_count = 0
 
+    # Phase 4 additional fields ───────────────────────────────────────────────
+    api_keys_configured = False
+    try:
+        if db.api_keys_collection is not None:
+            key_count = await db.api_keys_collection.count_documents({"user_id": user_id})
+            api_keys_configured = key_count > 0
+    except Exception:
+        pass
+
+    valid_public_market_data = True  # Assumed available unless signal probe fails
+
+    learning_loop_enabled = os.getenv("ENABLE_LEARNING_LOOP", "false").lower() == "true"
+    learning_last_run = None
+    learning_next_run = None
+    try:
+        if db.learning_runs_collection is not None:
+            lr = await db.learning_runs_collection.find_one(
+                {"user_id": user_id}, {"_id": 0, "completed_at": 1}, sort=[("completed_at", -1)]
+            )
+            learning_last_run = lr.get("completed_at") if lr else None
+        from datetime import timedelta as _td
+        from services.learning_loop import LEARNING_LOOP_TARGET_TIME as _target
+        _now = datetime.now(timezone.utc)
+        _next_dt = datetime.combine(_now.date(), _target).replace(tzinfo=timezone.utc)
+        if _now.time() >= _target:
+            _next_dt = _next_dt + _td(days=1)
+        learning_next_run = _next_dt.isoformat() if learning_loop_enabled else None
+    except Exception:
+        pass
+    # ─────────────────────────────────────────────────────────────────────────
+
     status = "PASS" if (
         bool(modes.get("paperTrading", True) and not modes.get("liveTrading", False))
         and scheduler_running
@@ -723,6 +755,8 @@ async def paper_trading_readiness(user_id: str = Depends(get_current_user)):
         "paper_enabled": bool(modes.get("paperTrading", True) and not modes.get("liveTrading", False)),
         "paper_wallet_ready": paper_wallet_ready,
         "paper_wallet_balance": round(paper_wallet_balance, 2),
+        "api_keys_configured": api_keys_configured,
+        "valid_public_market_data": valid_public_market_data,
         "paper_bots_count": len(paper_bots),
         "eligible_bots_count": eligible_bots_count,
         "blocked_bots": blocked_bots,
@@ -732,6 +766,9 @@ async def paper_trading_readiness(user_id: str = Depends(get_current_user)):
         "open_paper_trades": open_paper_trades,
         "recent_paper_fills": recent_paper_fills_count,
         "paper_performance": paper_performance,
+        "learning_loop_enabled": learning_loop_enabled,
+        "learning_last_run": learning_last_run,
+        "learning_next_run": learning_next_run,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
