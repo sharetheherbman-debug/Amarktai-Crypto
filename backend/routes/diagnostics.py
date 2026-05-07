@@ -15,6 +15,7 @@ import database as db
 from config import PAPER_MAX_HOLD_MINUTES, PAPER_STALE_EXIT_MINUTES, SOFT_MAX_HOLD_SECONDS, HARD_MAX_HOLD_SECONDS
 
 logger = logging.getLogger(__name__)
+INFINITE_PROFIT_FACTOR = 999.0
 
 router = APIRouter(prefix="/api/diagnostics", tags=["Diagnostics"])
 
@@ -2805,7 +2806,7 @@ async def live_trading_readiness(user_id: str = Depends(get_current_user)):
     win_rate = (wins / total) if total > 0 else 0.0
     gross_profit = sum((t.get("profit_loss", 0) or 0) for t in paper_closed if (t.get("profit_loss", 0) or 0) > 0)
     gross_loss = abs(sum((t.get("profit_loss", 0) or 0) for t in paper_closed if (t.get("profit_loss", 0) or 0) < 0))
-    profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else (999.0 if gross_profit > 0 else 0.0)
+    profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else (INFINITE_PROFIT_FACTOR if gross_profit > 0 else 0.0)
     expectancy = (sum((t.get("profit_loss", 0) or 0) for t in paper_closed) / total) if total > 0 else 0.0
     _set_check(
         "paper_performance",

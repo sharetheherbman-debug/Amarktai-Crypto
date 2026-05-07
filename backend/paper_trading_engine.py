@@ -129,6 +129,7 @@ PAPER_SPREAD_BPS = float(os.getenv("PAPER_SPREAD_BPS", "6"))     # 0.06%
 PAPER_PARTIAL_FILL_RATIO = float(os.getenv("PAPER_PARTIAL_FILL_RATIO", "0.6"))
 PAPER_PARTIAL_FILL_THRESHOLD_MULTIPLIER = float(os.getenv("PAPER_PARTIAL_FILL_THRESHOLD_MULTIPLIER", "2"))
 PAPER_LATENCY_MS = int(os.getenv("PAPER_LATENCY_MS", "150"))
+DEFAULT_CONFIDENCE = 0.5
 
 """
 PAPER TRADING REALISM - COMPREHENSIVE FEATURES (95% Accuracy)
@@ -1203,8 +1204,8 @@ class PaperTradingEngine:
             _position_size_pct = float(bot_data.get("trade_size_pct", 0.10))
             trade_amount_for_exp = float(bot_data.get("current_capital", 1000.0)) * _position_size_pct
             _conf_inputs = [
-                float(regime.get("confidence", 0.5) or 0.5),
-                float(prediction.get("confidence", 0.5) or 0.5),
+                float(regime.get("confidence", DEFAULT_CONFIDENCE) or DEFAULT_CONFIDENCE),
+                float(prediction.get("confidence", DEFAULT_CONFIDENCE) or DEFAULT_CONFIDENCE),
                 float((fetchai_data.get("confidence", 50) or 50) / 100.0),
             ]
             win_prob = max(min(sum(_conf_inputs) / len(_conf_inputs), 0.95), 0.05)
