@@ -565,6 +565,7 @@ async def paper_trading_readiness(user_id: str = Depends(get_current_user)):
     paper_bots = await db.bots_collection.find(
         {
             "user_id": user_id,
+            # Treat missing/legacy trading_mode as paper to preserve compatibility.
             "trading_mode": {"$ne": "live"},
             "status": {"$in": ["active", "running", "paused", "quarantined", "training", "training_failed"]},
             "deleted": {"$ne": True},
