@@ -1234,6 +1234,13 @@ class PaperTradingEngine:
                     "skip_reason": "expectancy_gate",
                     "error": "Estimated expectancy does not support this trade",
                     "details": {
+                        "expected_edge_pct": round(expected_move_pct, 4),
+                        "fees_pct_roundtrip": round(fee_pct_roundtrip, 4),
+                        "spread_pct": round(spread_pct, 4),
+                        "slippage_pct_roundtrip": round(slippage_pct_roundtrip, 4),
+                        "buffer_pct": round(_effective_safety_buffer, 4),
+                        "expectancy_zar": round(estimated_expectancy_zar, 4),
+                        "required_minimum_zar": MIN_EXPECTANCY_ZAR,
                         "estimated_expectancy_zar": round(estimated_expectancy_zar, 4),
                         "min_expectancy_zar": MIN_EXPECTANCY_ZAR,
                         "expected_move_pct": round(expected_move_pct, 4),

@@ -549,6 +549,7 @@ async def paper_trading_readiness(user_id: str = Depends(get_current_user)):
     """Paper trading readiness diagnostics for dashboard contract verification."""
     from trading_scheduler import trading_scheduler
     from services.paper_wallet_service import paper_wallet_service
+    from config import MIN_EXPECTANCY_ZAR, PAPER_PAIR_WHITELIST
 
     modes = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0}) or {}
     scheduler_running = bool(getattr(trading_scheduler, "is_running", False))
@@ -560,7 +561,8 @@ async def paper_trading_readiness(user_id: str = Depends(get_current_user)):
     )
 
     paper_wallet = await paper_wallet_service.get_wallet_status(user_id)
-    paper_wallet_ready = bool(paper_wallet.get("balances") is not None)
+    paper_wallet_balance = float(paper_wallet.get("available_zar", 0) or 0)
+    paper_wallet_ready = bool(paper_wallet.get("balances") is not None and paper_wallet_balance >= 0)
 
     paper_bots = await db.bots_collection.find(
         {
@@ -572,26 +574,92 @@ async def paper_trading_readiness(user_id: str = Depends(get_current_user)):
             "is_deleted": {"$ne": True},
             "deleted_at": {"$exists": False},
         },
-        {"_id": 0, "id": 1, "name": 1, "status": 1, "paused_by_user": 1, "paused_by_system": 1, "pause_reason": 1},
+        {
+            "_id": 0,
+            "id": 1,
+            "name": 1,
+            "status": 1,
+            "paused_by_user": 1,
+            "paused_by_system": 1,
+            "pause_reason": 1,
+            "exchange": 1,
+            "pair": 1,
+            "symbol": 1,
+            "risk_mode": 1,
+            "last_order_error": 1,
+            "last_order_diagnostics": 1,
+            "last_order_attempt_at": 1,
+            "last_tick_at": 1,
+            "training_complete": 1,
+            "paper_test_ready": 1,
+            "lifecycle_state": 1,
+        },
     ).to_list(2000)
 
     blocked_bots: List[Dict[str, Any]] = []
     eligible_bots_count = 0
+    ready_bots_count = 0
+    last_trade_attempt = None
+    last_order_error = None
+
+    def _pick_latest(current_value, candidate):
+        if not candidate:
+            return current_value
+        if not current_value or str(candidate) > str(current_value):
+            return candidate
+        return current_value
+
     for bot in paper_bots:
-        reasons: List[str] = []
+        block_reason = None
         status = bot.get("status")
         if status in {"paused", "quarantined", "training", "training_failed"}:
-            reasons.append(f"status:{status}")
-        if bot.get("paused_by_user"):
-            reasons.append("paused_by_user")
-        if bot.get("paused_by_system"):
-            reasons.append("paused_by_system")
-        if bot.get("pause_reason"):
-            reasons.append(str(bot.get("pause_reason")))
-        if reasons:
-            blocked_bots.append({"bot_id": bot.get("id"), "name": bot.get("name"), "reasons": sorted(set(reasons))})
+            block_reason = status
+        elif bot.get("paused_by_user"):
+            block_reason = "paused_by_user"
+        elif bot.get("paused_by_system"):
+            block_reason = "risk_lock"
+        elif bot.get("pause_reason"):
+            block_reason = str(bot.get("pause_reason"))
+        elif not (bot.get("training_complete", True) or bot.get("paper_test_ready", False)):
+            block_reason = "training_incomplete"
+        elif paper_wallet_balance <= 0:
+            block_reason = "missing_wallet"
+        elif bot.get("last_order_error") in {"pair_not_allowed", "expectancy_gate", "risk_lock", "missing_wallet"}:
+            block_reason = bot.get("last_order_error")
+
+        last_trade_attempt = _pick_latest(last_trade_attempt, bot.get("last_order_attempt_at") or bot.get("last_tick_at"))
+        last_order_error = bot.get("last_order_error") or last_order_error
+
+        if block_reason:
+            allowed_pairs = list(PAPER_PAIR_WHITELIST.get((bot.get("exchange") or "").lower(), []))
+            diagnostics = bot.get("last_order_diagnostics") or {}
+            blocked_entry = {
+                "bot_id": bot.get("id"),
+                "name": bot.get("name"),
+                "blocked": True,
+                "reason": block_reason,
+            }
+            if allowed_pairs:
+                blocked_entry["allowed_pairs"] = allowed_pairs
+            if bot.get("pair") or bot.get("symbol"):
+                blocked_entry["selected_pair"] = bot.get("pair") or bot.get("symbol")
+            if block_reason == "expectancy_gate" and diagnostics:
+                blocked_entry["expectancy_diagnostics"] = {
+                    "expected_edge": diagnostics.get("expected_edge_pct", diagnostics.get("expected_move_pct", 0)),
+                    "fees": diagnostics.get("fees_pct_roundtrip", diagnostics.get("fee_pct_roundtrip", 0)),
+                    "spread": diagnostics.get("spread_pct", 0),
+                    "slippage": diagnostics.get("slippage_pct_roundtrip", 0),
+                    "buffer": diagnostics.get("buffer_pct", diagnostics.get("edge_buffer_pct", 0)),
+                    "expectancy": diagnostics.get("expectancy_zar", diagnostics.get("estimated_expectancy_zar", 0)),
+                    "required_minimum": diagnostics.get("required_minimum_zar", diagnostics.get("min_expectancy_zar", MIN_EXPECTANCY_ZAR)),
+                }
+            if block_reason == "pair_not_allowed" and diagnostics:
+                blocked_entry["allowed_pairs"] = diagnostics.get("allowed_pairs", allowed_pairs)
+                blocked_entry["selected_pair"] = diagnostics.get("requested_pair", bot.get("pair") or bot.get("symbol"))
+            blocked_bots.append(blocked_entry)
         else:
             eligible_bots_count += 1
+            ready_bots_count += 1
 
     paper_filter = {
         "user_id": user_id,
@@ -609,41 +677,44 @@ async def paper_trading_readiness(user_id: str = Depends(get_current_user)):
         {"_id": 0, "id": 1, "bot_id": 1, "timestamp": 1, "net_pnl": 1, "profit_loss": 1},
     ).sort("timestamp", -1).to_list(200)
     wins = sum(1 for trade in recent_closed if float(trade.get("net_pnl", trade.get("profit_loss", 0)) or 0) > 0)
+    losses = sum(1 for trade in recent_closed if float(trade.get("net_pnl", trade.get("profit_loss", 0)) or 0) < 0)
     total_closed = len(recent_closed)
     net_pnl = sum(float(trade.get("net_pnl", trade.get("profit_loss", 0)) or 0) for trade in recent_closed)
+    gross_wins = sum(float(trade.get("net_pnl", trade.get("profit_loss", 0)) or 0) for trade in recent_closed if float(trade.get("net_pnl", trade.get("profit_loss", 0)) or 0) > 0)
+    gross_losses = abs(sum(float(trade.get("net_pnl", trade.get("profit_loss", 0)) or 0) for trade in recent_closed if float(trade.get("net_pnl", trade.get("profit_loss", 0)) or 0) < 0))
     paper_performance = {
-        "closed_trades": total_closed,
+        "trades": total_closed,
+        "wins": wins,
+        "losses": losses,
         "win_rate": round((wins / total_closed) * 100, 2) if total_closed else 0.0,
-        "net_pnl": round(net_pnl, 6),
+        "profit_factor": round((gross_wins / gross_losses), 4) if gross_losses else (round(gross_wins, 4) if gross_wins else 0.0),
         "expectancy": round((net_pnl / total_closed), 6) if total_closed else 0.0,
     }
 
-    recent_paper_fills: List[Dict[str, Any]] = []
+    recent_paper_fills_count = 0
     if db.db is not None:
         try:
-            recent_paper_fills = await db.db["fills_ledger"].find(
+            recent_paper_fills_count = await db.db["fills_ledger"].count_documents(
                 {"user_id": user_id, **paper_filter},
-                {"_id": 0},
-            ).sort("timestamp", -1).limit(10).to_list(10)
+            )
         except Exception:
-            recent_paper_fills = []
+            recent_paper_fills_count = 0
 
-    runtime_last = None
-    if db.bot_runtime_state_collection is not None:
-        runtime_last = await db.bot_runtime_state_collection.find_one(
-            {"user_id": user_id},
-            {"_id": 0, "updated_at": 1, "last_tick_at": 1, "last_order_error": 1},
-            sort=[("updated_at", -1)],
-        )
-
-    last_trade_attempt = (runtime_last or {}).get("last_tick_at") or (runtime_last or {}).get("updated_at")
-    last_order_error = (runtime_last or {}).get("last_order_error")
+    status = "PASS" if (
+        bool(modes.get("paperTrading", True) and not modes.get("liveTrading", False))
+        and scheduler_running
+        and paper_wallet_ready
+        and paper_wallet_balance > 0
+        and ready_bots_count > 0
+    ) else "FAIL"
 
     return {
         "success": True,
+        "status": status,
         "scheduler_running": scheduler_running,
         "paper_enabled": bool(modes.get("paperTrading", True) and not modes.get("liveTrading", False)),
         "paper_wallet_ready": paper_wallet_ready,
+        "paper_wallet_balance": round(paper_wallet_balance, 2),
         "paper_bots_count": len(paper_bots),
         "eligible_bots_count": eligible_bots_count,
         "blocked_bots": blocked_bots,
@@ -651,7 +722,7 @@ async def paper_trading_readiness(user_id: str = Depends(get_current_user)):
         "last_trade_attempt": last_trade_attempt,
         "last_order_error": last_order_error,
         "open_paper_trades": open_paper_trades,
-        "recent_paper_fills": recent_paper_fills,
+        "recent_paper_fills": recent_paper_fills_count,
         "paper_performance": paper_performance,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }

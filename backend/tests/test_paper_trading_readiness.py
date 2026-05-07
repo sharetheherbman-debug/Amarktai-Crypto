@@ -27,12 +27,17 @@ async def test_paper_trading_readiness_contract_fields():
             {"id": "paper_closed", "user_id": user_id, "status": "closed", "is_paper": True, "net_pnl": 12.5},
         ]
     )
+    await db.wallets_collection.insert_one(
+        {"user_id": user_id, "type": "paper", "balances": {"ZAR": 30000.0}}
+    )
 
     result = await paper_trading_readiness(user_id=user_id)
     expected = {
+        "status",
         "scheduler_running",
         "paper_enabled",
         "paper_wallet_ready",
+        "paper_wallet_balance",
         "paper_bots_count",
         "eligible_bots_count",
         "blocked_bots",
@@ -44,5 +49,6 @@ async def test_paper_trading_readiness_contract_fields():
         "paper_performance",
     }
     assert expected.issubset(result.keys())
+    assert result["status"] in {"PASS", "FAIL"}
     assert result["paper_bots_count"] == 2
     assert result["eligible_bots_count"] == 1
