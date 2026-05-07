@@ -103,6 +103,9 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 *.egg-info/
+backend/.venv/
+frontend/build/
+.env
 
 # Audit artifacts
 artifacts/

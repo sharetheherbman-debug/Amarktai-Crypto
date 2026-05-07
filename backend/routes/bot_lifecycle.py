@@ -2017,5 +2017,3 @@ async def seed_luno_paper_bots(user_id: str = Depends(get_current_user)):
         logger.exception("Seed Luno paper bots error")
         raise HTTPException(status_code=500, detail=str(e))
 
-
-

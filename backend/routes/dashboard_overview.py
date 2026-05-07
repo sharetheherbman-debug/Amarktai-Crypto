@@ -292,7 +292,13 @@ async def get_dashboard_snapshot(user_id: str = Depends(get_current_user)):
         paper_bot_count = paper_bot_capital = live_bot_count = live_bot_capital = 0.0
         if db.bots_collection is not None:
             bots = await db.bots_collection.find(
-                {"user_id": user_id, "status": {"$nin": ["deleted", "terminated"]}},
+                {
+                    "user_id": user_id,
+                    "status": {"$nin": ["deleted", "marked_for_deletion", "terminated"]},
+                    "deleted": {"$ne": True},
+                    "is_deleted": {"$ne": True},
+                    "deleted_at": {"$exists": False},
+                },
                 {"_id": 0, "status": 1, "trading_mode": 1, "current_capital": 1, "initial_capital": 1, "training_complete": 1}
             ).to_list(500)
             for b in bots:
@@ -349,9 +355,15 @@ async def get_dashboard_snapshot(user_id: str = Depends(get_current_user)):
         open_count = closed_count = wins = total = 0
         last_trade_at = None
         if db.trades_collection is not None:
-            open_count = await db.trades_collection.count_documents({"user_id": user_id, "status": "open"})
+            base_trade_filter = {
+                "user_id": user_id,
+                "deleted": {"$ne": True},
+                "is_deleted": {"$ne": True},
+                "deleted_at": {"$exists": False},
+            }
+            open_count = await db.trades_collection.count_documents({**base_trade_filter, "status": "open"})
             closed_docs = await db.trades_collection.find(
-                {"user_id": user_id, "status": {"$in": ["closed", "completed"]}},
+                {**base_trade_filter, "status": {"$in": ["closed", "completed"]}},
                 {"_id": 0, "profit": 1, "closed_at": 1}
             ).sort("closed_at", -1).to_list(200)
             closed_count = len(closed_docs)
@@ -451,3 +463,38 @@ async def get_dashboard_snapshot(user_id: str = Depends(get_current_user)):
         result["countdown"] = {"_error": str(e), "_as_of": now_iso}
 
     return result
+
+
+@router.get("/api/radar/snapshot")
+async def get_radar_snapshot(user_id: str = Depends(get_current_user)):
+    """Compatibility radar snapshot mapped to canonical overview snapshot service."""
+    from services.overview_service import overview_service
+
+    snapshot = await overview_service.get_snapshot(user_id)
+    return {
+        "success": True,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "market": {
+            "mood": snapshot.get("market_mood", "neutral"),
+            "regime": snapshot.get("market_regime", "unknown"),
+            "sentiment": snapshot.get("sentiment_score"),
+            "prices": snapshot.get("prices", {}),
+        },
+        "bots": {
+            "active": _safe_int(snapshot.get("bots_active", 0)),
+            "paper_active": _safe_int(snapshot.get("paper_bots_active", snapshot.get("bots_active", 0))),
+            "live_active": _safe_int(snapshot.get("live_bots_active", 0)),
+        },
+        "trades": {
+            "open": _safe_int(snapshot.get("open_positions", 0)),
+            "today": _safe_int(snapshot.get("trades_today", 0)),
+            "winRate": round(_safe_float(snapshot.get("win_rate", 0)), 2),
+            "pnl": round(_safe_float(snapshot.get("total_profit", 0)), 2),
+        },
+        "wallet": {
+            "paper": round(_safe_float(snapshot.get("paper_wallet_total", 0)), 2),
+            "allocated": round(_safe_float(snapshot.get("paper_wallet_allocated", 0)), 2),
+            "currency": "ZAR",
+        },
+        "source": "overview_service",
+    }
