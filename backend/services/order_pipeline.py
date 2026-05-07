@@ -1543,10 +1543,15 @@ class OrderPipeline:
                 exchange=exchange, symbol=symbol, order_type=order_type
             )
             expectancy_bps = edge_bps - total_cost_bps
-            if expectancy_bps < 0:
+            raw_expectancy = signal_diagnostics.get("expectancy_bps")
+            if raw_expectancy is None:
+                raw_expectancy = signal_diagnostics.get("expectancy")
+            if raw_expectancy is None:
+                raw_expectancy = signal_diagnostics.get("expected_value_bps")
+            if raw_expectancy is not None and float(raw_expectancy) < 0:
                 return {
                     "passed": False,
-                    "reason": f"Negative expectancy: {expectancy_bps:.2f} bps",
+                    "reason": f"Negative expectancy: {float(raw_expectancy):.2f} bps",
                     "signal_health": signal_health,
                     "signal_status": signal_status,
                     "edge_bps": edge_bps,

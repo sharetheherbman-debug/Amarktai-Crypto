@@ -2828,7 +2828,7 @@ async def live_trading_readiness(user_id: str = Depends(get_current_user)):
     if not checks["enable_live_trading"]:
         blockers.append("enable_live_trading_false")
     if not checks["signal_engine_healthy"]:
-        blockers.append(f"signal_engine_unhealthy:{signal_detail}")
+        blockers.append("signal_engine_unhealthy")
     if not checks["exchange_keys_valid"]:
         blockers.append("exchange_keys_invalid_or_missing")
     if not checks["wallet_funded"]:
@@ -2908,7 +2908,8 @@ async def runtime_truth(user_id: str = Depends(get_current_user)):
             "expected_edge_bps": float(getattr(probe_signal, "expected_edge_bps", 0.0) or 0.0),
         }
     except Exception as e:
-        signal_engine_state = {"status": "error", "reason": str(e)}
+        logger.warning(f"Runtime truth signal probe failed: {e}")
+        signal_engine_state = {"status": "error", "reason": "signal_probe_failed"}
 
     mode = "live" if system_mode.get("liveTrading") else "paper"
     return {
