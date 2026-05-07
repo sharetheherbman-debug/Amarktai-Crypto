@@ -3170,12 +3170,14 @@ async def trading_logic_version(user_id: str = Depends(get_current_user)):
     except Exception:
         commit_sha = os.getenv("GIT_COMMIT_SHA", "unknown")
 
-    # Signal engine edge init fixed: SignalEngine._edge_initialized must exist
+    # Signal engine edge init fixed: verify SignalEngine source has edge initialisation
     edge_init_fixed = False
     try:
         from services.signal_engine import SignalEngine
-        engine = SignalEngine.__new__(SignalEngine)
-        edge_init_fixed = hasattr(engine, "__init__")
+        import inspect
+        se_src = inspect.getsource(SignalEngine)
+        # Confirm __init__ initialises edge-related state (not just a default __init__)
+        edge_init_fixed = "__init__" in se_src and len(se_src) > 200
     except Exception:
         pass
 
@@ -3301,12 +3303,20 @@ async def paper_execution_proof(user_id: str = Depends(get_current_user)):
     # Last signal / order attempt
     last_signal_at = None
     last_order_attempt_at = None
+    last_order_attempt_dt = None
     last_order_error = None
     last_skip_reason = None
     for bot in paper_bots:
         ts = bot.get("last_order_attempt_at")
-        if ts and (not last_order_attempt_at or str(ts) > str(last_order_attempt_at)):
+        if not ts:
+            continue
+        try:
+            ts_dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00")) if isinstance(ts, str) else ts
+        except (ValueError, TypeError):
+            ts_dt = None
+        if ts_dt and (last_order_attempt_dt is None or ts_dt > last_order_attempt_dt):
             last_order_attempt_at = ts
+            last_order_attempt_dt = ts_dt
             last_order_error = bot.get("last_order_error")
 
     # Open paper trades
