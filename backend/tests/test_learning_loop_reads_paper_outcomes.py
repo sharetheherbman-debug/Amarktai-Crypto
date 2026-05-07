@@ -20,7 +20,8 @@ def test_learning_loop_reads_trades_collection():
         "services/learning_loop.py does not reference trades_collection — "
         "learning loop is not reading real trade outcomes"
     )
-    assert "status.*closed" in src or '"closed"' in src or "'closed'" in src, (
+    import re
+    assert re.search(r"status.*closed", src), (
         "Learning loop does not filter for closed trades"
     )
 

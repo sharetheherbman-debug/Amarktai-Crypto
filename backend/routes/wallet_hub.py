@@ -490,7 +490,7 @@ async def _build_platform_wallet_payload(user_id: str) -> Dict:
         ):
             last_key_test_at = last_tested
 
-    all_known_exchanges = SUPPORTED_PLATFORMS if "SUPPORTED_PLATFORMS" in dir() else []
+    all_known_exchanges = list(SUPPORTED_PLATFORMS) if SUPPORTED_PLATFORMS else []
     missing_keys = [e for e in all_known_exchanges if e not in configured_exchanges]
 
     return {

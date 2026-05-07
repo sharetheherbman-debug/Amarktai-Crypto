@@ -3213,8 +3213,8 @@ async def trading_logic_version(user_id: str = Depends(get_current_user)):
         from services.signal_engine import SignalEngine
         import inspect
         se_src = inspect.getsource(SignalEngine)
-        # Confirm __init__ initialises edge-related state (not just a default __init__)
-        edge_init_fixed = "__init__" in se_src and len(se_src) > 200
+        # Confirm __init__ initialises min_edge_bps (concrete edge indicator)
+        edge_init_fixed = "min_edge_bps" in se_src and "__init__" in se_src
     except Exception:
         pass
 
