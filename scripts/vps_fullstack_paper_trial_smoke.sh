@@ -125,7 +125,7 @@ SEED_BODY=$(api_call POST "/api/bots/seed-paper" "{}")
 created=$(json_get "$SEED_BODY" "created")
 python3 - <<PY
 import sys
-sys.exit(0 if int(float("${created}" or 0)) >= 0 else 1)
+sys.exit(0 if int(float("${created}" or 0)) >= 1 else 1)
 PY
 [[ $? -eq 0 ]] || fail "seed-paper created invalid value"
 pass "seed-paper endpoint reachable"
