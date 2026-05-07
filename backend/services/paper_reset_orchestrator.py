@@ -310,15 +310,7 @@ async def run(
         # Primary fill records tagged as paper
         r = await _safe_delete(
             raw_db["fills_ledger"],
-            {
-                "user_id": user_id,
-                "$or": [
-                    {"is_paper": True},
-                    {"mode": "paper"},
-                    {"trading_mode": "paper"},
-                    {"bot_id": {"$in": bot_ids}} if bot_ids else {"user_id": user_id, "is_paper": True},
-                ],
-            },
+            _paper_runtime_filter(user_id, bot_ids),
             "fills_ledger(is_paper)",
         )
         summary["fills_deleted"] += r

@@ -3064,6 +3064,14 @@ async def diagnostics_learning_last_run(user_id: str = Depends(get_current_user)
         from datetime import time, timedelta
         from services.learning_loop import learning_loop
 
+        safety_parameter_prefixes = (
+            "stop_loss",
+            "cooldown",
+            "max_hold",
+            "safety_exit",
+            "position_size",
+            "trade_size",
+        )
         enabled = os.getenv("ENABLE_LEARNING_LOOP", "false").lower() == "true"
         last_run = await db.learning_runs_collection.find_one(
             {"user_id": user_id},
@@ -3096,7 +3104,7 @@ async def diagnostics_learning_last_run(user_id: str = Depends(get_current_user)
         changes = ((last_run.get("report") or {}).get("changes") or [])
         safety_changes = [
             change for change in changes
-            if str(change.get("parameter", "")).startswith(("stop_loss", "cooldown", "max_hold", "safety_exit", "position_size", "trade_size"))
+            if str(change.get("parameter", "")).startswith(safety_parameter_prefixes)
         ]
         return {
             "enabled": enabled,

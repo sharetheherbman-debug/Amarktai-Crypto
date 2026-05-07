@@ -1845,7 +1845,6 @@ _GBOT_DEFINITIONS = [
     {"name": "Gbot4", "risk_mode": "balanced"},
     {"name": "Gbot5", "risk_mode": "aggressive"},
 ]
-_GBOT_PAIR_SEQUENCE = ["BTC/ZAR", "ETH/ZAR", "XRP/ZAR", "BTC/ZAR", "ETH/ZAR"]
 
 async def _seed_standard_paper_bots(user_id: str):
     """
@@ -1925,9 +1924,7 @@ async def _seed_standard_paper_bots(user_id: str):
         for index, bot_def in enumerate(_GBOT_DEFINITIONS):
             name = bot_def["name"]
             risk_mode = bot_def["risk_mode"]
-            selected_pair = _GBOT_PAIR_SEQUENCE[index]
-            if selected_pair not in allowed_pairs:
-                selected_pair = allowed_pairs[index % len(allowed_pairs)]
+            selected_pair = allowed_pairs[index % len(allowed_pairs)]
 
             # Check if already exists (non-deleted)
             existing_doc = await db.bots_collection.find_one(
