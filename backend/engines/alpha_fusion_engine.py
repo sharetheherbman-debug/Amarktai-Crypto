@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from enum import Enum
 import logging
 import numpy as np
+import os
 
 from engines.regime_detector import regime_detector, MarketRegime, RegimeState
 from engines.order_flow_imbalance import ofi_calculator, OFISignal
@@ -78,7 +79,7 @@ class AlphaFusionEngine:
         ofi_weight: float = 0.20,
         whale_weight: float = 0.20,
         sentiment_weight: float = 0.20,
-        macro_weight: float = 0.15
+        macro_weight: Optional[float] = None
     ):
         """
         Initialize alpha fusion engine
@@ -91,6 +92,8 @@ class AlphaFusionEngine:
             macro_weight: Weight for macro news signal (default: 0.15)
         """
         # Normalize weights to sum to 1.0
+        if macro_weight is None:
+            macro_weight = float(os.getenv("MACRO_SIGNAL_WEIGHT", "0.0"))
         total = regime_weight + ofi_weight + whale_weight + sentiment_weight + macro_weight
         
         self.weights = {
@@ -261,6 +264,12 @@ class AlphaFusionEngine:
         whale_score, whale_conf = self._whale_to_score(whale_signal)
         sentiment_score, sentiment_conf = self._sentiment_to_score(sentiment_signal)
         macro_score, macro_conf = self._macro_to_score(macro_signal)
+        live_enabled = os.getenv("ENABLE_LIVE_TRADING", "false").lower() == "true"
+        if live_enabled and macro_signal:
+            has_real_macro = any(not getattr(evt, "is_simulated", False) for evt in macro_signal.recent_events)
+            if not has_real_macro:
+                macro_score = 0.0
+                macro_conf = 0.0
         
         # Store component scores
         component_scores = {

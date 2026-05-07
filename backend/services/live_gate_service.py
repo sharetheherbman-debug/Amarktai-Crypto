@@ -5,6 +5,7 @@ Logs all violations and emits alerts
 """
 
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Dict, List, Tuple
 import database as db
@@ -36,6 +37,14 @@ class LiveGateService:
         violations = []
         
         try:
+            from utils.env_utils import get_trading_flags
+            from config import MIN_TRADES_FOR_PROMOTION, MIN_WIN_RATE, MAX_DRAWDOWN_PCT
+            flags = get_trading_flags()
+            if not flags["enable_trading"]:
+                violations.append("ENABLE_TRADING is false")
+            if not flags["enable_live_trading"]:
+                violations.append("ENABLE_LIVE_TRADING is false")
+
             # Check 1: System mode must be live
             from services.system_mode_service import system_mode_service
             current_mode = await system_mode_service.get_current_mode(user_id)
@@ -79,10 +88,40 @@ class LiveGateService:
             
             if not training_complete and not admin_override:
                 violations.append("Bot training not complete and no admin override")
-            
+
             if admin_override:
                 logger.warning(f"LiveGate: Admin override active for bot {bot_id}")
-            
+
+            # Check 4.1: Paper performance gates
+            paper_closed = await db.trades_collection.find({
+                "bot_id": bot_id,
+                "is_paper": True,
+                "status": "closed",
+            }, {"_id": 0, "profit_loss": 1}).to_list(5000)
+            wins = sum(1 for t in paper_closed if (t.get("profit_loss", 0) or 0) > 0)
+            losses = sum(1 for t in paper_closed if (t.get("profit_loss", 0) or 0) < 0)
+            total = len(paper_closed)
+            if total < MIN_TRADES_FOR_PROMOTION:
+                violations.append(f"Insufficient paper trades: {total} < {MIN_TRADES_FOR_PROMOTION}")
+            win_rate = (wins / total) if total > 0 else 0.0
+            if win_rate < MIN_WIN_RATE:
+                violations.append(f"Win rate too low: {win_rate:.2%} < {MIN_WIN_RATE:.2%}")
+            gross_profit = sum((t.get("profit_loss", 0) or 0) for t in paper_closed if (t.get("profit_loss", 0) or 0) > 0)
+            gross_loss = abs(sum((t.get("profit_loss", 0) or 0) for t in paper_closed if (t.get("profit_loss", 0) or 0) < 0))
+            profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else (999.0 if gross_profit > 0 else 0.0)
+            if profit_factor <= 1.2:
+                violations.append(f"Profit factor too low: {profit_factor:.2f} <= 1.2")
+            expectancy = (
+                sum((t.get("profit_loss", 0) or 0) for t in paper_closed) / total
+                if total > 0 else 0.0
+            )
+            if expectancy <= 0:
+                violations.append(f"Expectancy not positive: {expectancy:.4f}")
+            if float(bot.get("max_drawdown", 0.0) or 0.0) > MAX_DRAWDOWN_PCT:
+                violations.append(
+                    f"Max drawdown too high: {float(bot.get('max_drawdown', 0.0) or 0.0):.2%} > {MAX_DRAWDOWN_PCT:.2%}"
+                )
+
             # Check 5: Bodyguard state must be OK
             from services.bodyguard_service import bodyguard_service
             
@@ -96,6 +135,11 @@ class LiveGateService:
             
             if emergency and emergency.get('enabled'):
                 violations.append(f"Emergency stop active: {emergency.get('reason')}")
+
+            # Check 6.1: Macro simulated signal must not influence live mode by default
+            macro_weight = float(os.getenv("MACRO_SIGNAL_WEIGHT", "0.0") or 0.0)
+            if macro_weight > 0:
+                violations.append("MACRO_SIGNAL_WEIGHT must be 0.0 for live unless real provider is validated")
             
             # Check 7: Exchange must be valid
             from config.platforms import is_valid_platform, get_platform_config
@@ -106,6 +150,24 @@ class LiveGateService:
                 platform_config = get_platform_config(exchange)
                 if not platform_config.get('supports_live'):
                     violations.append(f"Exchange {exchange} does not support live trading")
+
+            # Check 8: Signal engine must be healthy for the bot pair before live order placement
+            try:
+                from services.signal_engine import SignalEngine
+                signal_engine = SignalEngine(db.db if hasattr(db, "db") else db)
+                signal = await signal_engine.get_signal(
+                    user_id=user_id,
+                    bot_id=bot_id,
+                    exchange=exchange,
+                    symbol=bot.get("pair", "BTC/USDT"),
+                    side="buy",
+                    amount=1.0,
+                    price=None,
+                )
+                if getattr(signal, "signal_status", "ok") != "ok":
+                    violations.append(f"Signal engine unhealthy: {getattr(signal, 'signal_status', 'unknown')}")
+            except Exception as e:
+                violations.append(f"Signal engine check failed: {e}")
             
             # Log if violations found
             if violations:

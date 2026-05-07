@@ -1121,6 +1121,26 @@ class PaperTradingEngine:
                 elif fetchai_signal == 'SELL' and trend != 'bearish':
                     trend = 'bearish'  # Strong SELL signal overrides
 
+            # Spot safety: do not open long entries when final signal is bearish.
+            if trend == "bearish":
+                supports_shorting = bool(bot_data.get("supports_shorting", False))
+                market_type = str(bot_data.get("market_type", "spot")).lower()
+                live_shorting_enabled = os.getenv("LIVE_SHORTING_ENABLED", "false").lower() == "true"
+                if not (supports_shorting and market_type in {"margin", "futures"} and live_shorting_enabled):
+                    return {
+                        "success": False,
+                        "bot_id": bot_id,
+                        "trade_direction": "FLAT",
+                        "skip_reason": "bearish_spot_no_short",
+                        "error": "Final signal is bearish; spot mode does not allow short entries",
+                        "details": {
+                            "trend": trend,
+                            "market_type": market_type,
+                            "supports_shorting": supports_shorting,
+                            "live_shorting_enabled": live_shorting_enabled,
+                        },
+                    }
+
             # EDGE GATE: Require expected move to clear costs + buffer
             # Skip the gate when the ML prediction has no real data (is_simulated=True)
             # Adaptive safety buffer: use risk-mode config default, increase if spread is wide.
@@ -1182,7 +1202,19 @@ class PaperTradingEngine:
             # Use bot-level trade_size_pct if set; otherwise fall back to 10 %.
             _position_size_pct = float(bot_data.get("trade_size_pct", 0.10))
             trade_amount_for_exp = float(bot_data.get("current_capital", 1000.0)) * _position_size_pct
-            estimated_expectancy_pct = expected_move_pct - estimated_cost_pct
+            _conf_inputs = [
+                float(regime.get("confidence", 0.5) or 0.5),
+                float(prediction.get("confidence", 0.5) or 0.5),
+                float((fetchai_data.get("confidence", 50) or 50) / 100.0),
+            ]
+            win_prob = max(min(sum(_conf_inputs) / len(_conf_inputs), 0.95), 0.05)
+            stop_loss_pct_for_expectancy = float(bot_data.get("stop_loss_pct", 0.01))
+            avg_win_after_costs_pct = max(expected_move_pct - estimated_cost_pct, 0.0)
+            avg_loss_after_costs_pct = (stop_loss_pct_for_expectancy * 100.0) + estimated_cost_pct
+            estimated_expectancy_pct = (
+                (win_prob * avg_win_after_costs_pct)
+                - ((1.0 - win_prob) * avg_loss_after_costs_pct)
+            )
             estimated_expectancy_zar = estimated_expectancy_pct / 100.0 * trade_amount_for_exp
             if estimated_expectancy_zar <= MIN_EXPECTANCY_ZAR:
                 logger.info(
@@ -1410,6 +1442,11 @@ class PaperTradingEngine:
 
             stop_loss_pct = float(bot_data.get("stop_loss_pct", 0.02))
             take_profit_pct = float(bot_data.get("take_profit_pct", 0.03))
+            mode_defaults = RISK_MODE_CONFIG.get(risk_mode, RISK_MODE_CONFIG.get("balanced", {}))
+            if "stop_loss_pct" in mode_defaults:
+                stop_loss_pct = float(bot_data.get("stop_loss_pct", mode_defaults.get("stop_loss_pct", stop_loss_pct)))
+            if "take_profit_pct" in mode_defaults:
+                take_profit_pct = float(bot_data.get("take_profit_pct", mode_defaults.get("take_profit_pct", take_profit_pct)))
 
             fee_currency = "ZAR" if "/ZAR" in symbol else "USDT"
             market_source = market_snapshot.get("source") if isinstance(market_snapshot, dict) else data_source
@@ -1446,6 +1483,7 @@ class PaperTradingEngine:
                 "quality_score": 0,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "trade_type": "BUY",
+                "trade_direction": "LONG",
                 "trade_close_reason": None,
                 "data_source": data_source,
                 "fee_rate": round(fee_rate, 6),
@@ -1486,6 +1524,13 @@ class PaperTradingEngine:
                     "top_candidates": self._last_symbol_selection.get("top5_scored", []),
                     "chosen_pair": symbol,
                     "expectancy_estimate": round(estimated_expectancy_zar, 4),
+                    "expectancy": {
+                        "expected_value_zar": round(estimated_expectancy_zar, 4),
+                        "expected_value_pct": round(estimated_expectancy_pct, 4),
+                        "win_probability": round(win_prob, 4),
+                        "avg_win_after_costs_pct": round(avg_win_after_costs_pct, 4),
+                        "avg_loss_after_costs_pct": round(avg_loss_after_costs_pct, 4),
+                    },
                     "cost_estimate": round(estimated_cost_pct, 4),
                     "regime": playbook_info["regime"],
                     "playbook": playbook,
@@ -1696,18 +1741,31 @@ class PaperTradingEngine:
                 and age_minutes >= STAGNATION_EXIT_MINUTES
                 and entry_price > 0
             ):
-                # Stagnation/no-progress exit: price hasn't moved beyond estimated
-                # round-trip cost (fee_rate * 2 + spread_pct) after STAGNATION_EXIT_MINUTES.
-                # Prevents capital from being locked in dead trades.
+                # Stagnation exit (hardened):
+                # only close when trade is net-negative vs round-trip costs, confidence has
+                # deteriorated, and spread remains safe enough to exit.
                 fee_rate_est = float(open_trade.get("fee_rate", 0.001))
                 spread_bps = market_snapshot.get("spread_bps", PAPER_SPREAD_BPS) if market_snapshot else PAPER_SPREAD_BPS
                 round_trip_cost_pct = (fee_rate_est * 2 + spread_bps / 10000) * 100
-                if abs(pnl_pct) < round_trip_cost_pct:
+                spread_safe = spread_bps <= (PAPER_MAX_SPREAD_PCT * 100)
+                previous_conf = float(open_trade.get("ai_confidence", 0.5) or 0.5)
+                current_conf = previous_conf
+                try:
+                    _regime_detector = market_regime_detector
+                    if _regime_detector is None:
+                        from market_regime import market_regime_detector as _regime_detector
+                    _fresh_regime = await _regime_detector.detect_regime(symbol, exchange)
+                    current_conf = float(_fresh_regime.get("confidence", previous_conf) or previous_conf)
+                except Exception:
+                    pass
+                confidence_deteriorated = current_conf <= max(0.30, previous_conf - 0.10)
+                if pnl_pct < -round_trip_cost_pct and confidence_deteriorated and spread_safe:
                     close_reason = "stagnation_exit"
                     logger.info(
                         f"CLOSE_STAGNATION bot={bot_id} trade={open_trade.get('id', '?')} "
                         f"price={current_price:.4f} pnl_pct={pnl_pct:.3f} "
-                        f"round_trip_cost_pct={round_trip_cost_pct:.3f} age_min={age_minutes:.1f}"
+                        f"round_trip_cost_pct={round_trip_cost_pct:.3f} age_min={age_minutes:.1f} "
+                        f"conf_prev={previous_conf:.2f} conf_now={current_conf:.2f} spread_bps={spread_bps:.2f}"
                     )
                     self._log_action("CLOSE", bot_id, symbol or "?", reason="stagnation_exit",
                                      trade_id=open_trade.get("id", ""), bot_name=bot_data.get("name", ""))
@@ -1904,6 +1962,7 @@ class PaperTradingEngine:
                 "quality_score": quality_score,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "trade_type": "BUY->SELL",
+                "trade_direction": "LONG",
                 "trade_close_reason": close_reason,
                 "data_source": open_trade.get("data_source"),
                 "fee_rate": round(fee_rate, 6),

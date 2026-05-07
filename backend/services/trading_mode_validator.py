@@ -9,7 +9,7 @@ from typing import Dict, Tuple, Optional
 from datetime import datetime, timezone
 import database as db
 from logger_config import logger
-from utils.env_utils import env_bool
+from utils.env_utils import env_bool, get_trading_flags
 
 
 class TradingModeValidator:
@@ -88,7 +88,8 @@ class TradingModeValidator:
             user_id = bot_data.get('user_id')
             bot_id = bot_data.get('id')
 
-            if not env_bool('PAPER_TRADING', False) and not env_bool('ENABLE_PAPER_TRADING', False):
+            flags = get_trading_flags()
+            if not flags["enable_paper_trading"]:
                 return False, "paper", "Paper trading not enabled globally"
 
             # Check user's system mode
@@ -136,9 +137,12 @@ class TradingModeValidator:
             bot_id = bot_data.get('id')
             exchange = bot_data.get('exchange', 'unknown')
 
-            live_enabled = env_bool('ENABLE_LIVE_TRADING', False) or env_bool('LIVE_TRADING', False)
+            flags = get_trading_flags()
+            live_enabled = flags["enable_live_trading"]
             if not live_enabled:
                 return False, "live", "Live trading not enabled globally"
+            if not flags["enable_trading"]:
+                return False, "live", "Master trading switch ENABLE_TRADING is disabled"
             
             # 1. Check user's system mode for live trading flag
             if system_mode is None:
@@ -196,11 +200,15 @@ class TradingModeValidator:
             (trading_allowed, reason)
         """
         try:
-            paper_enabled = env_bool('PAPER_TRADING', False)
-            live_enabled = env_bool('LIVE_TRADING', False)
+            flags = get_trading_flags()
+            paper_enabled = flags["enable_paper_trading"]
+            live_enabled = flags["enable_live_trading"]
+            trading_enabled = flags["enable_trading"]
             
+            if not trading_enabled:
+                return False, "Master trading disabled (ENABLE_TRADING=false)"
             if not paper_enabled and not live_enabled:
-                return False, "No trading mode enabled (PAPER_TRADING=false AND LIVE_TRADING=false)"
+                return False, "No trading mode enabled (ENABLE_PAPER_TRADING=false AND ENABLE_LIVE_TRADING=false)"
             
             if paper_enabled and not live_enabled:
                 return True, "Paper trading enabled globally"

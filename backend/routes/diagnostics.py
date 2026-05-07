@@ -2673,3 +2673,208 @@ async def get_bot_diagnostics_alias(
     diagnostic payload including performance/circuit_breaker fields."""
     from routes.bot_lifecycle import get_bot_diagnostics as _bot_diag
     return await _bot_diag(bot_id=bot_id, user_id=user_id)
+
+
+@router.get("/paper-wallet-readiness/{bot_id}")
+async def paper_wallet_readiness(bot_id: str, user_id: str = Depends(get_current_user)):
+    """Per-bot paper wallet readiness check."""
+    from services.paper_wallet_ledger import paper_wallet_ledger
+
+    bot = await db.bots_collection.find_one({"id": bot_id, "user_id": user_id}, {"_id": 0})
+    if not bot:
+        raise HTTPException(status_code=404, detail="Bot not found")
+
+    ok, balance, message = await paper_wallet_ledger.get_balance(bot_id)
+    return {
+        "success": True,
+        "bot_id": bot_id,
+        "ready": bool(ok and balance > 0),
+        "balance": balance,
+        "message": message,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.get("/live-trading-readiness")
+async def live_trading_readiness(user_id: str = Depends(get_current_user)):
+    """
+    Canonical PASS/FAIL live trading readiness gate report.
+    Live must remain blocked until all checks pass.
+    """
+    from utils.env_utils import get_trading_flags
+    from config import (
+        MIN_TRADES_FOR_PROMOTION,
+        MIN_WIN_RATE,
+        MAX_DRAWDOWN_PCT,
+        MIN_EXPECTANCY_ZAR,
+    )
+    from services.paper_wallet_ledger import paper_wallet_ledger
+    from services.signal_engine import SignalEngine
+    from trading_scheduler import trading_scheduler
+    import os
+
+    checks = {}
+    failures: List[str] = []
+
+    def _set_check(name: str, passed: bool, detail: Dict):
+        checks[name] = {"passed": passed, **detail}
+        if not passed:
+            failures.append(name)
+
+    flags = get_trading_flags()
+    _set_check(
+        "env_flags",
+        bool(flags["enable_trading"] and flags["enable_live_trading"]),
+        {"flags": flags},
+    )
+
+    # Scheduler status
+    _set_check(
+        "scheduler_running",
+        bool(getattr(trading_scheduler, "is_running", False)),
+        {"is_running": bool(getattr(trading_scheduler, "is_running", False))},
+    )
+
+    # Emergency stop
+    system_mode = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0}) or {}
+    _set_check(
+        "emergency_stop",
+        not bool(system_mode.get("emergencyStop", False)),
+        {"emergencyStop": bool(system_mode.get("emergencyStop", False))},
+    )
+
+    # Route collisions
+    route_keys = {}
+    collisions = []
+    try:
+        from server import app as _app
+        for route in _app.routes:
+            methods = getattr(route, "methods", None) or set()
+            path = getattr(route, "path", None)
+            if not path:
+                continue
+            for method in methods:
+                if method in {"HEAD", "OPTIONS"}:
+                    continue
+                key = (method, path)
+                if key in route_keys:
+                    collisions.append({"method": method, "path": path})
+                else:
+                    route_keys[key] = True
+    except Exception as e:
+        collisions.append({"error": str(e)})
+    _set_check("route_collisions", len(collisions) == 0, {"collisions": collisions})
+
+    # Live bots and key checks
+    live_bots = await db.bots_collection.find(
+        {"user_id": user_id, "trading_mode": "live", "status": {"$ne": "deleted"}},
+        {"_id": 0}
+    ).to_list(200)
+
+    keys_ok = True
+    keys_details = []
+    for bot in live_bots:
+        exchange = bot.get("exchange")
+        key_doc = await db.api_keys_collection.find_one(
+            {"user_id": user_id, "$or": [{"exchange": exchange}, {"provider": exchange}]},
+            {"_id": 0, "last_test_ok": 1}
+        )
+        tested = bool(key_doc and key_doc.get("last_test_ok"))
+        keys_ok = keys_ok and tested
+        keys_details.append({"bot_id": bot.get("id"), "exchange": exchange, "last_test_ok": tested})
+    _set_check("exchange_keys_tested", keys_ok if live_bots else False, {"live_bot_count": len(live_bots), "details": keys_details})
+
+    # Wallet funded check (paper + live readiness)
+    wallet_ready = True
+    wallet_details = []
+    for bot in live_bots:
+        ok, balance, msg = await paper_wallet_ledger.get_balance(bot.get("id"))
+        funded = bool(ok and balance > 0)
+        wallet_ready = wallet_ready and funded
+        wallet_details.append({"bot_id": bot.get("id"), "funded": funded, "balance": balance, "message": msg})
+    _set_check("wallet_funded", wallet_ready if live_bots else False, {"details": wallet_details})
+
+    # Paper performance and stats (aggregate for user)
+    paper_closed = await db.trades_collection.find(
+        {"user_id": user_id, "is_paper": True, "status": "closed"},
+        {"_id": 0, "profit_loss": 1}
+    ).to_list(10000)
+    total = len(paper_closed)
+    wins = sum(1 for t in paper_closed if (t.get("profit_loss", 0) or 0) > 0)
+    losses = sum(1 for t in paper_closed if (t.get("profit_loss", 0) or 0) < 0)
+    win_rate = (wins / total) if total > 0 else 0.0
+    gross_profit = sum((t.get("profit_loss", 0) or 0) for t in paper_closed if (t.get("profit_loss", 0) or 0) > 0)
+    gross_loss = abs(sum((t.get("profit_loss", 0) or 0) for t in paper_closed if (t.get("profit_loss", 0) or 0) < 0))
+    profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else (999.0 if gross_profit > 0 else 0.0)
+    expectancy = (sum((t.get("profit_loss", 0) or 0) for t in paper_closed) / total) if total > 0 else 0.0
+    _set_check(
+        "paper_performance",
+        bool(total >= MIN_TRADES_FOR_PROMOTION and win_rate >= MIN_WIN_RATE and profit_factor > 1.2 and expectancy > MIN_EXPECTANCY_ZAR),
+        {
+            "paper_trades": total,
+            "wins": wins,
+            "losses": losses,
+            "win_rate": win_rate,
+            "profit_factor": profit_factor,
+            "expectancy": expectancy,
+        },
+    )
+
+    # Max drawdown
+    user_max_drawdown = 0.0
+    for bot in await db.bots_collection.find({"user_id": user_id}, {"_id": 0, "max_drawdown": 1}).to_list(1000):
+        user_max_drawdown = max(user_max_drawdown, float(bot.get("max_drawdown", 0.0) or 0.0))
+    _set_check(
+        "max_drawdown",
+        bool(user_max_drawdown <= MAX_DRAWDOWN_PCT),
+        {"max_drawdown": user_max_drawdown, "limit": MAX_DRAWDOWN_PCT},
+    )
+
+    # Signal engine health
+    signal_ok = False
+    signal_detail = {}
+    try:
+        probe_symbol = (live_bots[0].get("pair") if live_bots else "BTC/USDT") if live_bots else "BTC/USDT"
+        signal_engine = SignalEngine(db.db if hasattr(db, "db") else db)
+        signal = await signal_engine.get_signal(
+            user_id=user_id,
+            bot_id=(live_bots[0].get("id") if live_bots else "readiness_probe"),
+            exchange=(live_bots[0].get("exchange") if live_bots else "binance"),
+            symbol=probe_symbol,
+            side="buy",
+            amount=1.0,
+            price=None,
+        )
+        signal_ok = getattr(signal, "signal_status", "ok") == "ok"
+        signal_detail = {
+            "signal_status": getattr(signal, "signal_status", "unknown"),
+            "diagnostics": getattr(signal, "diagnostics", {}),
+        }
+    except Exception as e:
+        signal_ok = False
+        signal_detail = {"error": str(e)}
+    _set_check("signal_engine_healthy", signal_ok, signal_detail)
+
+    # Simulated live signal guardrails
+    macro_weight = float(os.getenv("MACRO_SIGNAL_WEIGHT", "0.0") or 0.0)
+    _set_check(
+        "no_simulated_live_signals",
+        macro_weight == 0.0,
+        {"macro_signal_weight": macro_weight},
+    )
+
+    # Risk locks
+    paused_by_bodyguard = await db.bots_collection.count_documents(
+        {"user_id": user_id, "paused_by_bodyguard": True, "status": "paused"}
+    )
+    _set_check("risk_locks", paused_by_bodyguard == 0, {"paused_by_bodyguard": paused_by_bodyguard})
+
+    overall_pass = len(failures) == 0
+    return {
+        "success": True,
+        "status": "PASS" if overall_pass else "FAIL",
+        "ready": overall_pass,
+        "checks": checks,
+        "failed_checks": failures,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }

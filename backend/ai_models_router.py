@@ -11,12 +11,11 @@ import os
 class AIModelsRouter:
     def __init__(self):
         # Note: OpenAI client is now created per-request via resolver
-        # Map config model names to actual OpenAI models
         self.models = {
-            'system_brain': 'gpt-4o',  # Best for strategic decisions
-            'trade_decision': 'gpt-4o',  # Best for trading
-            'reporting': 'gpt-4',  # Good for reports
-            'chatops': 'gpt-4o'  # Best for chat
+            'system_brain': AI_MODELS.get('system_brain', 'gpt-4o'),
+            'trade_decision': AI_MODELS.get('trade_decision', 'gpt-4o'),
+            'reporting': AI_MODELS.get('reporting', 'gpt-4o-mini'),
+            'chatops': AI_MODELS.get('chatops', 'gpt-4o')
         }
     
     async def get_client_for_user(self, user_id: str = None):

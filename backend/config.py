@@ -215,10 +215,10 @@ OVERALL_PROFIT_THRESHOLD_ZAR = int(os.getenv('OVERALL_PROFIT_THRESHOLD_ZAR', '50
 
 # AI Models
 AI_MODELS = {
-    'system_brain': 'gpt-5.1',  # Autopilot, risk, learning
-    'trade_decision': 'gpt-4o',  # Per-bot decisions
-    'reporting': 'gpt-4',  # Summaries, emails
-    'chatops': 'gpt-4o'  # Dashboard chat
+    'system_brain': os.getenv('OPENAI_SYSTEM_MODEL', 'gpt-4o'),
+    'trade_decision': os.getenv('OPENAI_TRADE_MODEL', 'gpt-4o'),
+    'reporting': os.getenv('OPENAI_REPORT_MODEL', 'gpt-4o-mini'),
+    'chatops': os.getenv('OPENAI_TRADE_MODEL', 'gpt-4o')
 }
 
 # Risk settings

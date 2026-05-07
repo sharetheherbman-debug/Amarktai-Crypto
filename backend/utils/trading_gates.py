@@ -9,7 +9,7 @@ This module implements critical safety gates to prevent unauthorized trading:
 
 import logging
 from typing import Tuple, Optional
-from utils.env_utils import env_bool
+from utils.env_utils import env_bool, get_trading_flags
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +26,9 @@ def check_trading_mode_enabled() -> Tuple[bool, str]:
     Returns:
         Tuple[bool, str]: (is_enabled, reason_or_mode)
     """
-    paper_trading = env_bool('PAPER_TRADING', False) or env_bool('ENABLE_PAPER_TRADING', False)
-    live_trading = env_bool('LIVE_TRADING', False)
+    flags = get_trading_flags()
+    paper_trading = flags["enable_paper_trading"]
+    live_trading = flags["enable_live_trading"]
     
     if not paper_trading and not live_trading:
         return False, "No trading mode enabled. Set PAPER_TRADING=1 or LIVE_TRADING=1"
@@ -160,7 +161,7 @@ def enforce_trading_gates(trading_mode: str = None) -> None:
         return
     
     if trading_mode == "live":
-        live_enabled = env_bool('LIVE_TRADING', False)
+        live_enabled = get_trading_flags()["enable_live_trading"]
         if not live_enabled:
             msg = "❌ Live trading gate FAILED: LIVE_TRADING not enabled"
             logger.error(msg)
