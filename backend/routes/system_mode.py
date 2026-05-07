@@ -855,7 +855,7 @@ async def paper_reset(
         candidate = _extract_reset_password(request)
         if not is_paper_reset_password_valid(candidate):
             logger.warning("Paper reset denied for user=%s: invalid password/confirmation", user_id[:8])
-            raise HTTPException(status_code=403, detail="Invalid paper reset password")
+            raise HTTPException(status_code=403, detail="Invalid reset credentials")
         reset_paper_reset_attempts(user_id)
 
         current_mode = await get_system_mode(user_id)
@@ -891,7 +891,7 @@ async def reset_paper_trading(
         candidate = _extract_reset_password(request)
         if not is_paper_reset_password_valid(candidate):
             logger.warning("Legacy paper reset denied for user=%s: invalid password/confirmation", user_id[:8])
-            raise HTTPException(status_code=403, detail="Invalid paper reset password")
+            raise HTTPException(status_code=403, detail="Invalid reset credentials")
         reset_paper_reset_attempts(user_id)
 
         current_mode = await get_system_mode(user_id)
