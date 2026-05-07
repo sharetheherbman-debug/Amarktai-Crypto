@@ -1,6 +1,6 @@
 import os
 import sys
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -11,6 +11,12 @@ sys.path.insert(0, backend_dir)
 @pytest.mark.asyncio
 async def test_perform_paper_reset_reports_deleted_old_paper_bots():
     from routes.system_mode import perform_paper_reset
+    import database as db
+
+    mock_system_modes = MagicMock()
+    mock_system_modes.update_one = AsyncMock()
+    mock_audit_logs = MagicMock()
+    mock_audit_logs.insert_one = AsyncMock()
 
     with patch(
         "services.paper_reset_orchestrator.run",
@@ -32,8 +38,8 @@ async def test_perform_paper_reset_reports_deleted_old_paper_bots():
                 "warnings": [],
             },
         ),
-    ), patch("routes.system_mode.db.system_modes_collection.update_one", new=AsyncMock()), patch(
-        "routes.system_mode.db.audit_logs_collection.insert_one", new=AsyncMock()
+    ), patch.object(db, "system_modes_collection", mock_system_modes), patch.object(
+        db, "audit_logs_collection", mock_audit_logs
     ), patch("routes.system_mode.manager.send_message", new=AsyncMock()), patch(
         "routes.system_mode.rt_events.force_refresh", new=AsyncMock()
     ):

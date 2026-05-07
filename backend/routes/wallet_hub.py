@@ -456,6 +456,43 @@ async def _build_platform_wallet_payload(user_id: str) -> Dict:
             {"platform": "paper", "balance": paper_total, "currency": "ZAR"},
         ]
 
+    # ── API key truth (Phase 3 contract fields) ──────────────────────────────
+    configured_exchanges: list = []
+    valid_api_keys_count = 0
+    missing_keys: list = []
+    last_key_test_at = None
+    last_test_ok_by_exchange: Dict = {}
+    key_records: list = []
+    try:
+        if db.api_keys_collection is not None:
+            cursor = db.api_keys_collection.find(
+                {"user_id": user_id},
+                {"_id": 0, "exchange": 1, "provider": 1, "last_test_ok": 1, "last_tested_at": 1},
+            )
+            key_records = await cursor.to_list(100)
+    except Exception as _ke:
+        logger.warning("wallet/platform api_keys lookup failed for %s: %s", user_id[:8], _ke)
+
+    for key_doc in key_records:
+        exch = (key_doc.get("exchange") or key_doc.get("provider") or "").lower()
+        if not exch:
+            continue
+        if exch not in configured_exchanges:
+            configured_exchanges.append(exch)
+        last_tested = key_doc.get("last_tested_at")
+        test_ok = key_doc.get("last_test_ok")
+        last_test_ok_by_exchange[exch] = test_ok
+        if test_ok is True:
+            valid_api_keys_count += 1
+        if last_tested and (
+            not last_key_test_at
+            or str(last_tested) > str(last_key_test_at)
+        ):
+            last_key_test_at = last_tested
+
+    all_known_exchanges = list(SUPPORTED_PLATFORMS) if SUPPORTED_PLATFORMS else []
+    missing_keys = [e for e in all_known_exchanges if e not in configured_exchanges]
+
     return {
         "success": True,
         "mode": mode,
@@ -469,6 +506,13 @@ async def _build_platform_wallet_payload(user_id: str) -> Dict:
         "byExchange": live_by_exchange,
         "exchanges": live_by_exchange,
         "liveWalletMissing": bool(mode == "live" and live_balance <= 0),
+        # Phase 3 API key truth fields
+        "configuredExchanges": configured_exchanges,
+        "validApiKeysCount": valid_api_keys_count,
+        "connectedExchangesCount": len(configured_exchanges),
+        "missingKeys": missing_keys,
+        "lastKeyTestAt": last_key_test_at,
+        "lastTestOk": last_test_ok_by_exchange,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
