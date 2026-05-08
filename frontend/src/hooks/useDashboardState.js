@@ -2119,7 +2119,11 @@ export default function useDashboardState(navigate) {
           toast.warning(`Reset invariant check failed: ${data.failed_invariants.join(', ')}`);
         }
         // Hard refresh all data sources so no stale panel shows phantom values
-        await refreshAllDashboardData();
+        try {
+          await refreshAllDashboardData();
+        } catch (_refreshErr) {
+          console.warn('Dashboard refresh after reset failed:', _refreshErr);
+        }
         // Fetch reset-proof to confirm clean state (non-blocking)
         try {
           const proofRes = await apiClient.get('/system/reset-proof');
