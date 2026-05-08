@@ -29,6 +29,7 @@ const APIKeySettings = () => {
   const [activeProviderId, setActiveProviderId] = useState(null);
   const [unsupportedProviders, setUnsupportedProviders] = useState({});
   const [requestCounter, setRequestCounter] = useState(0); // Track request order
+  const [platformSummary, setPlatformSummary] = useState(null);
   
   const getProviderName = (providerId) =>
     PROVIDERS.find((provider) => provider.id === providerId)?.name;
@@ -90,7 +91,10 @@ const APIKeySettings = () => {
   
   const fetchAllProviders = async () => {
     try {
-      const data = await get('/keys/status');
+      const [data, walletPlatform] = await Promise.all([
+        get('/keys/status'),
+        get('/wallet/platform').catch(() => null)
+      ]);
       const statusMap = normalizeStatusResponse(data);
       const providerStatuses = PROVIDERS.map(provider => {
         const statusInfo = statusMap[provider.id] || {};
@@ -105,6 +109,9 @@ const APIKeySettings = () => {
         };
       });
       setProviders(providerStatuses);
+      if (walletPlatform) {
+        setPlatformSummary(walletPlatform);
+      }
     } catch (error) {
       console.error('Error fetching providers:', error);
       notifyError(error);
@@ -414,6 +421,19 @@ const APIKeySettings = () => {
       {message.text && (
         <div className={`api-message ${message.type}`}>
           {message.text}
+        </div>
+      )}
+
+      {platformSummary && (
+        <div className="api-key-security" style={{ marginBottom: '16px' }}>
+          <h4>📡 Exchange Connectivity</h4>
+          <p>
+            Connected exchanges: <strong>{platformSummary.connectedExchangesCount ?? 0}</strong>
+            {' · '}
+            Valid API keys: <strong>{platformSummary.validApiKeysCount ?? 0}</strong>
+            {' · '}
+            Last key test: <strong>{formatTimestamp(platformSummary.lastKeyTestAt)}</strong>
+          </p>
         </div>
       )}
 

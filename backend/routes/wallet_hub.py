@@ -493,6 +493,28 @@ async def _build_platform_wallet_payload(user_id: str) -> Dict:
     all_known_exchanges = list(SUPPORTED_PLATFORMS) if SUPPORTED_PLATFORMS else []
     missing_keys = [e for e in all_known_exchanges if e not in configured_exchanges]
 
+    per_exchange: Dict = {}
+    for exchange in sorted(set(list(live_by_exchange.keys()) + configured_exchanges + list(SUPPORTED_PLATFORMS))):
+        exchange_balance = live_by_exchange.get(exchange, {})
+        if not isinstance(exchange_balance, dict):
+            exchange_balance = {}
+        key_ok = last_test_ok_by_exchange.get(exchange)
+        if key_ok is True:
+            key_status = "configured_valid"
+        elif key_ok is False:
+            key_status = "configured_invalid"
+        elif exchange in configured_exchanges:
+            key_status = "configured_untested"
+        else:
+            key_status = "not_configured"
+        per_exchange[exchange] = {
+            "exchange": exchange,
+            "configured": exchange in configured_exchanges,
+            "keyStatus": key_status,
+            "lastTestOk": key_ok,
+            "balance": exchange_balance,
+        }
+
     return {
         "success": True,
         "mode": mode,
@@ -513,6 +535,7 @@ async def _build_platform_wallet_payload(user_id: str) -> Dict:
         "missingKeys": missing_keys,
         "lastKeyTestAt": last_key_test_at,
         "lastTestOk": last_test_ok_by_exchange,
+        "perExchange": per_exchange,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 

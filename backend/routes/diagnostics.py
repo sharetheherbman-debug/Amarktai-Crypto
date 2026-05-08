@@ -748,9 +748,24 @@ async def paper_trading_readiness(user_id: str = Depends(get_current_user)):
         and ready_bots_count > 0
     ) else "FAIL"
 
+    blockers: List[str] = []
+    if not bool(modes.get("paperTrading", True) and not modes.get("liveTrading", False)):
+        blockers.append("paper_mode_disabled")
+    if not scheduler_running:
+        blockers.append("scheduler_not_running")
+    if not paper_wallet_ready or paper_wallet_balance <= 0:
+        blockers.append("wallet_not_ready")
+    if ready_bots_count <= 0:
+        blockers.append("eligible_bots_zero")
+    if not valid_public_market_data:
+        blockers.append("market_data_unavailable")
+    blockers.extend(sorted({str(b.get("reason")) for b in blocked_bots if b.get("reason")}))
+    blockers = sorted(set(blockers))
+
     return {
         "success": True,
         "status": status,
+        "blockers": blockers,
         "scheduler_running": scheduler_running,
         "paper_enabled": bool(modes.get("paperTrading", True) and not modes.get("liveTrading", False)),
         "paper_wallet_ready": paper_wallet_ready,
@@ -3238,9 +3253,30 @@ async def trading_logic_version(user_id: str = Depends(get_current_user)):
 
     # Expectancy gate: config must export MIN_EXPECTANCY_ZAR
     expectancy_gate = False
+    expectancy_gate_diagnostics: Dict[str, Any] = {}
+    fees_spread_slippage_buffer_used = False
     try:
         from config import MIN_EXPECTANCY_ZAR
         expectancy_gate = isinstance(MIN_EXPECTANCY_ZAR, (int, float))
+        from paper_trading_engine import (
+            EXCHANGE_FEES,
+            PAPER_SLIPPAGE_BPS,
+            PAPER_MAX_SPREAD_PCT,
+            SAFETY_BUFFER_PCT,
+        )
+        sample_fee = 0.0
+        if isinstance(EXCHANGE_FEES, dict) and EXCHANGE_FEES:
+            first_exchange = next(iter(EXCHANGE_FEES.values()))
+            if isinstance(first_exchange, dict):
+                sample_fee = float(first_exchange.get("taker", 0.0) or 0.0)
+        expectancy_gate_diagnostics = {
+            "min_expectancy_zar": float(MIN_EXPECTANCY_ZAR),
+            "fees_pct_roundtrip_sample": round(sample_fee * 2 * 100, 4),
+            "max_spread_pct": float(PAPER_MAX_SPREAD_PCT),
+            "slippage_pct_roundtrip": round((float(PAPER_SLIPPAGE_BPS) / 10000.0) * 2 * 100, 4),
+            "buffer_pct": float(SAFETY_BUFFER_PCT),
+        }
+        fees_spread_slippage_buffer_used = True
     except Exception:
         pass
 
@@ -3281,6 +3317,8 @@ async def trading_logic_version(user_id: str = Depends(get_current_user)):
         "signal_status_gate": signal_status_gate,
         "bearish_spot_block": bearish_spot_block,
         "expectancy_gate": expectancy_gate,
+        "expectancy_gate_diagnostics": expectancy_gate_diagnostics,
+        "fees_spread_slippage_buffer_used": fees_spread_slippage_buffer_used,
         "fake_signal_live_weight_zero": fake_signal_live_weight_zero,
         "stagnation_exit_minutes": STAGNATION_EXIT_MINUTES,
         "paper_fill_recording_enabled": paper_fill_recording_enabled,
@@ -3320,6 +3358,7 @@ async def paper_execution_proof(user_id: str = Depends(get_current_user)):
     fresh_bots_count = len(paper_bots)
     eligible_bots: List[Dict] = []
     blocked_bots: List[Dict] = []
+    expectancy_gate_math: List[Dict[str, Any]] = []
 
     for bot in paper_bots:
         reason = None
@@ -3333,7 +3372,21 @@ async def paper_execution_proof(user_id: str = Depends(get_current_user)):
             reason = bot.get("last_order_error")
 
         if reason:
-            blocked_bots.append({"bot_id": bot.get("id"), "name": bot.get("name"), "reason": reason})
+            blocked_entry = {"bot_id": bot.get("id"), "name": bot.get("name"), "reason": reason}
+            if reason == "expectancy_gate":
+                diagnostics = bot.get("last_order_diagnostics") or {}
+                math_payload = {
+                    "edge": diagnostics.get("expected_edge_pct", diagnostics.get("expected_move_pct", 0)),
+                    "fees": diagnostics.get("fees_pct_roundtrip", diagnostics.get("fee_pct_roundtrip", 0)),
+                    "spread": diagnostics.get("spread_pct", 0),
+                    "slippage": diagnostics.get("slippage_pct_roundtrip", 0),
+                    "buffer": diagnostics.get("buffer_pct", diagnostics.get("edge_buffer_pct", 0)),
+                    "required_min": diagnostics.get("required_minimum_zar", diagnostics.get("min_expectancy_zar", 0)),
+                    "expectancy": diagnostics.get("expectancy_zar", diagnostics.get("estimated_expectancy_zar", 0)),
+                }
+                blocked_entry["expectancy_diagnostics"] = math_payload
+                expectancy_gate_math.append({"bot_id": bot.get("id"), **math_payload})
+            blocked_bots.append(blocked_entry)
         else:
             eligible_bots.append(bot)
 
@@ -3389,9 +3442,11 @@ async def paper_execution_proof(user_id: str = Depends(get_current_user)):
         "last_skip_reason": last_skip_reason,
         "open_paper_trades": open_paper_trades,
         "recent_paper_fills": len(recent_closed),
+        "closed_paper_trades": len(recent_closed),
         "recent_paper_closed_trades": recent_closed,
         "paper_pnl": round(net_pnl, 2),
         "paper_win_rate": win_rate,
         "blocked_bots": blocked_bots,
+        "expectancy_gate_diagnostics": expectancy_gate_math,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
